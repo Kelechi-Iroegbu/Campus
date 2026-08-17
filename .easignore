@@ -1,0 +1,12 @@
+# Dev tooling, not needed to build the app
+.agents/
+.claude/
+design/
+*.md
+
+# Same excludes as .gitignore
+node_modules/
+.expo/
+dist/
+web-build/
+.git/
