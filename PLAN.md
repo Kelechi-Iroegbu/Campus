@@ -23,6 +23,17 @@ order, not just as a fulfillment method on a product order. This required
 loosening `delivery_jobs` so it can exist independent of `orders` — see
 Milestone 8 below, which now covers both delivery paths.
 
+**Revision note (3)**: the sign-in screen is built as a single combined screen
+(`src/app/index.tsx`) with both "Continue with Google" and "Continue with
+Apple" buttons, using Clerk's `useSSO` hosted OAuth flow (`expo-auth-session`
++ `expo-crypto`) rather than native `@clerk/expo-google-signin` /
+`expo-apple-authentication` modules. This replaces the originally planned
+split of a separate `(auth)/welcome.tsx` (role picker) +
+`(auth)/sign-in.tsx` — there's no role-selection step or `?role=` param yet,
+just direct sign-in. Confirmed working and the direction we're keeping;
+`welcome.tsx`/student-onboarding/vendor role selection are still open, not
+replaced, just not built yet.
+
 ---
 
 ## Locked-in decisions
@@ -49,18 +60,23 @@ Milestone 8 below, which now covers both delivery paths.
 ---
 
 ## 0. Project setup
-- [ ] Change `app.json` `web.output` from `"static"` to `"server"`
-- [ ] Add Clerk/Sentry config plugins to `app.json` as their installers require
-- [ ] Install auth deps: `@clerk/expo`, `@clerk/expo-google-signin`,
-      `expo-secure-store`, `expo-apple-authentication`
-- [ ] Install data deps: `drizzle-orm`, `drizzle-kit`, `@neondatabase/serverless`
-- [ ] Install jobs dep: `inngest`
-- [ ] Install image deps: `imagekit`, `imagekit-javascript`, `expo-image-picker`
-- [ ] Install monitoring: run `npx @sentry/wizard@latest -i reactNative`
-      (`@sentry/react-native`, not deprecated `sentry-expo`)
-- [ ] Install notifications dep: `expo-notifications`
-- [ ] Create `.env` / `.env.example` with all required vars (client `EXPO_PUBLIC_*`
-      + server-only keys — see plan file §1)
+- [ ] Change `app.json` `web.output` from `"static"` to `"server"` (still
+      `"static"` — not done)
+- [x] Add Clerk/Sentry config plugins to `app.json` as their installers require
+- [x] Install auth deps — actually installed: `@clerk/expo`, `expo-secure-store`,
+      `expo-auth-session`, `expo-crypto` (hosted OAuth via `useSSO`, see
+      Revision note (3) — `@clerk/expo-google-signin` / `expo-apple-authentication`
+      native modules were **not** installed and aren't needed for this approach)
+- [x] Install data deps: `drizzle-orm`, `drizzle-kit`, `@neondatabase/serverless`
+- [x] Install jobs dep: `inngest` (installed, not wired yet — wiring is Milestone 2)
+- [ ] Install image deps: `imagekit` installed; `imagekit-javascript` and
+      `expo-image-picker` still needed (upload wiring is Milestone 2)
+- [x] Install monitoring: `@sentry/react-native` installed + config plugin wired,
+      DSN in `_layout.tsx`
+- [ ] Install notifications dep: `expo-notifications` (not installed yet)
+- [ ] Create `.env` / `.env.example` with all required vars (`.env` was
+      untracked via `chore: stop tracking .env`, but no `.env.example` was
+      committed — worth adding so the repo is clonable without guessing vars)
 - [ ] Confirm dev workflow: `expo run:ios` / `expo run:android` (Expo Go won't work
       once native modules are in)
 
@@ -77,27 +93,36 @@ Milestone 8 below, which now covers both delivery paths.
       order_items, wallets (with `kind`: student|vendor|courier),
       wallet_transactions, paystack_transactions, payment_methods,
       favorite_vendors, push_tokens
+      — **not started**: `schema.ts` currently only has a placeholder `users`
+      table (`id`, `clerk_id`, `email`, `created_at`)
 - [ ] Enable `btree_gist` extension on Neon; add the appointments exclusion
       constraint (`EXCLUDE USING gist ...`) — confirm Neon supports it early
       (spike), fallback is a `SERIALIZABLE` transaction with an overlap check
-- [ ] Write `src/db/client.ts` (neon-http + neon-serverless/pool instances)
-- [ ] Provision Neon dev database, run first `drizzle-kit push`/migration
+- [x] Write `src/db/client.ts` — built as `src/db/index.ts` (neon-http only;
+      no serverless/pool instance yet, add when a transaction needs it)
+- [x] Provision Neon dev database, run first `drizzle-kit push`/migration
+      (`drizzle/0000_purple_leopardon.sql` exists)
 - [ ] Write `src/db/seed.ts` (1 university, 2 campuses, product + service
       categories, 1 admin profile)
-- [ ] Set up Clerk dashboard: Google provider, Apple provider, webhook endpoint
-- [ ] Set up Sentry project, confirm DSN wired
-- [ ] Build `src/app/_layout.tsx`: `ClerkProvider` + `SessionProvider` + Sentry init
+- [x] Set up Clerk dashboard: Google provider, Apple provider — webhook
+      endpoint still open (see `webhooks/clerk+api.ts` below, not built)
+- [x] Set up Sentry project, confirm DSN wired
+- [x] Build `src/app/_layout.tsx`: `ClerkProvider` + Sentry init (no separate
+      `SessionProvider` — using Clerk's `useAuth`/`useSSO` directly)
 - [ ] Build `lib/auth.ts` helpers: `requireProfile`, `requireAdmin`,
       `requireVendorOwner`
 - [ ] Build `api/me+api.ts` (lazy-create profile) and `webhooks/clerk+api.ts`
       (svix-verified `user.created/updated/deleted`)
-- [ ] Build `(auth)/welcome.tsx` ("I'm a student" / "I'm a vendor")
-- [ ] Build `(auth)/sign-in.tsx` (Google/Apple buttons, `?role=` param)
+- [ ] Build `(auth)/welcome.tsx` ("I'm a student" / "I'm a vendor") — see
+      Revision note (3); not built, no role selection yet
+- [x] Build sign-in screen (Google/Apple buttons) — built as a single combined
+      `src/app/index.tsx`, not `(auth)/sign-in.tsx`, and with no `?role=` param
+      (see Revision note (3))
 - [ ] Build `(auth)/student-onboarding.tsx` (pick university/campus, name)
 - [ ] Wire route guards (`Stack.Protected`/`Tabs.Protected`) for `(auth)`,
-      `(student)`, `(vendor)`, `admin`
-- [ ] Verify: splash → welcome → Google/Apple sign-in → lands on empty
-      authenticated placeholder screen
+      `(student)`, `(vendor)`, `admin` — no route groups exist yet
+- [x] Verify: splash → Google/Apple sign-in → lands on authenticated
+      placeholder screen ("You're signed in" + sign out)
 
 ## 2. Vendor onboarding + admin approval — all three offering types (Milestone 2)
 - [ ] Build `(auth)/vendor-application/offering-type.tsx` — "What will you
