@@ -8,6 +8,13 @@
       "when": 1786882256991,
       "tag": "0000_purple_leopardon",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786992263141,
+      "tag": "0001_military_baron_strucker",
+      "breakpoints": true
     }
   ]
 }
