@@ -68,9 +68,13 @@ replaced, just not built yet.
       Revision note (3) — `@clerk/expo-google-signin` / `expo-apple-authentication`
       native modules were **not** installed and aren't needed for this approach)
 - [x] Install data deps: `drizzle-orm`, `drizzle-kit`, `@neondatabase/serverless`
-- [x] Install jobs dep: `inngest` (installed, not wired yet — wiring is Milestone 2)
+- [x] Install jobs dep: `inngest` (installed and wired — `src/inngest/client.ts`,
+      `api/inngest+api.ts` serve endpoint, Clerk user sync functions live
+      already; full spike verification still tracked under Milestone 2)
 - [ ] Install image deps: `imagekit` installed; `imagekit-javascript` and
-      `expo-image-picker` still needed (upload wiring is Milestone 2)
+      `expo-image-picker` still needed — however, auth endpoint + upload
+      wiring already exist without them (see Milestone 2 note below); no
+      image *picker* UI built yet, so this stays open
 - [x] Install monitoring: `@sentry/react-native` installed + config plugin wired,
       DSN in `_layout.tsx`
 - [ ] Install notifications dep: `expo-notifications` (not installed yet)
@@ -94,7 +98,7 @@ replaced, just not built yet.
       wallet_transactions, paystack_transactions, payment_methods,
       favorite_vendors, push_tokens
       — **not started**: `schema.ts` currently only has a placeholder `users`
-      table (`id`, `clerk_id`, `email`, `created_at`)
+      table (`id`, `clerk_id`, `email`, `name`, `image`, `created_at`)
 - [ ] Enable `btree_gist` extension on Neon; add the appointments exclusion
       constraint (`EXCLUDE USING gist ...`) — confirm Neon supports it early
       (spike), fallback is a `SERIALIZABLE` transaction with an overlap check
@@ -105,14 +109,17 @@ replaced, just not built yet.
 - [ ] Write `src/db/seed.ts` (1 university, 2 campuses, product + service
       categories, 1 admin profile)
 - [x] Set up Clerk dashboard: Google provider, Apple provider — webhook
-      endpoint still open (see `webhooks/clerk+api.ts` below, not built)
+      endpoint built (see `webhooks/clerk+api.ts` below)
 - [x] Set up Sentry project, confirm DSN wired
 - [x] Build `src/app/_layout.tsx`: `ClerkProvider` + Sentry init (no separate
       `SessionProvider` — using Clerk's `useAuth`/`useSSO` directly)
 - [ ] Build `lib/auth.ts` helpers: `requireProfile`, `requireAdmin`,
       `requireVendorOwner`
-- [ ] Build `api/me+api.ts` (lazy-create profile) and `webhooks/clerk+api.ts`
-      (svix-verified `user.created/updated/deleted`)
+- [ ] Build `api/me+api.ts` (lazy-create profile) — not built
+- [x] Build `webhooks/clerk+api.ts` (svix-verified `user.created/updated/deleted`
+      → Inngest events `clerk/user.created`/`.updated`/`.deleted`, synced to the
+      `users` table via `src/inngest/functions.ts`: `syncUserCreation`,
+      `syncUserUpdate`, `syncUserDeletion`)
 - [ ] Build `(auth)/welcome.tsx` ("I'm a student" / "I'm a vendor") — see
       Revision note (3); not built, no role selection yet
 - [x] Build sign-in screen (Google/Apple buttons) — built as a single combined
@@ -136,7 +143,11 @@ replaced, just not built yet.
 - [ ] Build one shared icon-grid picker component, fed by `categories` filtered
       on `kind`, reused by both product and service detail screens
 - [ ] Build shared `cover-photo.tsx` step (all three types)
-- [ ] Build `api/imagekit/auth+api.ts` + wire `imagekit-javascript` client upload
+- [x] Build ImageKit auth endpoint + client upload wiring — built as
+      `src/app/api/imagekit-auth+api.ts` (not `api/imagekit/auth+api.ts`) and
+      `src/lib/imagekit.ts` (`uploadImage()`/`getImageUrl()` via plain
+      `fetch`, not the `imagekit-javascript` SDK — no such dep installed).
+      Still open: no `expo-image-picker` screen calls `uploadImage()` yet
 - [ ] Build shared `bank-details.tsx` step (bank name, account number, Paystack
       account-name resolution) — all three types
 - [ ] Build shared `review.tsx` (offering_type-conditional summary) and submit
@@ -151,8 +162,10 @@ replaced, just not built yet.
 - [ ] Build `api/vendor-applications/[id]/approve+api.ts` (branches on
       offering_type to create `wallets` row with the right `kind`) and
       `.../reject+api.ts`
-- [ ] Set up `lib/inngest/client.ts` and `api/inngest+api.ts` (`serve()` endpoint)
-      — first real Inngest function proven working here (treat as a spike)
+- [x] Set up Inngest client + `api/inngest+api.ts` (`serve()` endpoint) — built
+      as `src/inngest/client.ts` (not `lib/inngest/client.ts`); proven working
+      via the Clerk user-sync functions (`syncUserCreation`, `syncUserUpdate`,
+      `syncUserDeletion`)
 - [ ] Build `lib/inngest/functions/vendor-application.ts` (approved/rejected →
       notification dispatch)
 - [ ] Build `lib/inngest/functions/notifications.ts` (Expo push send, reads
