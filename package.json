@@ -6,6 +6,7 @@
     "@clerk/expo": "^4.3.0",
     "@expo-google-fonts/inter": "^0.4.2",
     "@expo/ui": "~57.0.10",
+    "@expo/vector-icons": "^15.1.1",
     "@neondatabase/serverless": "^1.1.0",
     "@sentry/react-native": "^8.23.0",
     "drizzle-orm": "^0.45.2",
@@ -46,6 +47,8 @@
     "@ngrok/ngrok": "^1.7.0",
     "@types/react": "~19.2.2",
     "drizzle-kit": "^0.31.10",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~57.0.1",
     "tailwindcss": "^3.4.19",
     "typescript": "~6.0.3"
   },
