@@ -714,46 +714,156 @@ completion, the vendor is credited the subtotal only._
 
 ## 6. Service catalog + availability + booking (Milestone 6)
 
-_UI shells + real slot logic built (mock-backed, `src/data/serviceBooking.ts`
-+ pure `src/lib/booking.ts`): `book/[serviceId].tsx` (date + slot-grid),
-`components/booking/MonthCalendar.tsx` + `SlotGrid.tsx`, and
-`vendor/products/availability.tsx`. Service CRUD reuses the vendor
-`products/` tab in "service" copy mode. No `services`/`service_availability`/
-`appointments` schema, no API, no exclusion constraint._
+_**Complete and live-verified 2026-09-17.** Real `services`/`service_availability`/
+`appointments` schema (already existed from Milestone 1, including the
+Postgres `EXCLUDE`-constraint double-booking guard — this milestone was only
+missing the API/UI layer). Real service CRUD, vendor weekly-hours +
+date-override availability, on-demand slot computation, and the full
+appointment lifecycle, all rewired off `src/data/serviceBooking.ts`'s mock
+store. `src/lib/booking.ts`'s pure slot logic (`slotsForDate`, `hasOpenSlots`,
+etc.) reused as-is via a server-side adapter — no duplicated logic._
 
-- [ ] Build `(vendor)/services/` tab: CRUD on `services` (name, description,
-      duration, price) — shares the mock-backed `vendor/products/` tab via the
-      `vendorMode` toggle; no dedicated `services/` route or persistence
-- [x] Build `(vendor)/services/availability.tsx` (recurring weekly windows +
-      date-specific overrides) — UI shell built as
-      `vendor/products/availability.tsx` (mock-backed)
-- [ ] Build `api/services+api.ts`, `api/services/[id]+api.ts`,
-      `api/services/[id]/availability+api.ts`
-- [ ] Build `api/services/[id]/slots+api.ts` (on-demand slot computation from
-      availability + existing appointments — no materialized slots table)
-- [x] Build student service browse flow: service list on vendor detail → service
-      detail → date/slot-grid screen → confirm — UI shell built
-      (`book/[serviceId].tsx` + booking components, mock-backed; booking a slot
-      appends to the in-memory store and shows on the vendor side same session)
-- [ ] Build `api/appointments+api.ts` (POST book — re-verify slot open, insert
-      protected by exclusion constraint + debit wallet in one transaction; handle
-      the race-lost/slot-taken error path)
-- [ ] Build `api/appointments/[id]+api.ts`,
-      `.../confirm+api.ts`, `.../complete+api.ts`, `.../cancel+api.ts`,
-      `.../no-show+api.ts` (no-show refunds the student per confirmed decision)
-- [ ] Build `(vendor)/bookings/` tab (incoming appointments list/detail,
-      confirm/complete/cancel/no-show actions) — incoming bookings render in
-      the mock-backed vendor `orders` tab in "service" mode; no dedicated
-      `bookings/` route or status actions
-- [ ] Build `(student)/orders/` (or equivalent) view for upcoming/past appointments
-- [ ] Build confirm-timeout via Inngest `step.waitForEvent` (mirrors order accept
-      timeout)
-- [ ] Build `lib/inngest/functions/appointment-reminders.ts` (`sleepUntil`
-      24h-before and 1h-before pushes, `cancelOn` matching `appointment/cancelled`)
-- [ ] Verify: book a slot, confirm the exclusion constraint rejects a
-      simulated double-booking race, walk through
-      booked→confirmed→completed/cancelled/no_show, confirm reminders fire (and
-      cancel correctly) via Inngest dev UI
+Two decisions locked in during this milestone: **a ₦100 flat platform fee
+per appointment** (added mid-milestone at the user's request — mirrors
+`PLATFORM_FEE_MINOR` exactly: student pays service price + fee, vendor is
+credited the service price only, refunds return the full fee-inclusive
+total); and **appointments can be cancelled any time before the scheduled
+start, even after vendor confirmation** (looser than orders, which lock out
+cancellation once accepted) — only the vendor can mark a no-show, once the
+scheduled end has passed, and both cancel and no-show refund in full.
+
+- [x] `src/lib/appointments.ts` (new) — `confirmAppointment`
+      (`booked → confirmed`, no money movement), `cancelAppointment`
+      (`booked`/`confirmed` → `cancelled`, only while still in the future,
+      full refund including the fee), `noShowAppointment` (vendor-only by
+      route, only once `scheduledEnd` has passed, full refund),
+      `completeAppointment` (`confirmed → completed`, credits the vendor the
+      service price only). Mirrors `src/lib/orders.ts`'s shape exactly,
+      including the no-op-safe status guards needed for the confirm-timeout
+      job to race safely against real user actions.
+- [x] `src/lib/serviceAvailability.ts` (new) — server-only adapter between
+      the DB (`service_availability`, `appointments`) and `booking.ts`'s pure
+      functions. Treats every date/time as West Africa Time (UTC+1, no DST —
+      a fixed offset, safe to hardcode; no per-vendor timezone column
+      exists). `loadBookedAppointmentsForDate`/`loadBookedAppointmentsInRange`
+      treat `booked`/`confirmed`/`completed` appointments as occupying a
+      slot — found and fixed a real bug live: this originally excluded
+      `completed`, which doesn't match the DB exclusion constraint's own
+      predicate (`status NOT IN ('cancelled','no_show')`) and could let a
+      slot appear open when the constraint would still reject it.
+- [x] `api/services+api.ts`, `api/services/[id]+api.ts` — vendor CRUD (owner-
+      checked); the detail route is public (students need it pre-booking).
+- [x] `api/services/[id]/slots+api.ts`, `.../month-availability+api.ts` —
+      public, on-demand slot computation server-side (no materialized slots
+      table), reusing `booking.ts`'s pure logic via the adapter.
+- [x] `api/vendor/availability+api.ts` — GET/POST for both the weekly
+      recurring pattern and date overrides, keyed by `vendorProfileId`
+      (shared across all of a vendor's services, confirmed via the existing
+      mock's own design). A day/override save deletes and re-inserts every
+      row for that day-of-week/date rather than diffing individual windows.
+- [x] `api/appointments+api.ts` (POST book / GET list, student-side),
+      `api/appointments/[id]+api.ts` (GET detail, owning student or vendor),
+      `api/appointments/[id]/cancel+api.ts` (student cancel). Booking debits
+      `service price + ₦100 fee` and inserts the appointment in one
+      transaction; the exclusion constraint is the authoritative
+      double-booking guard, with a pre-check purely for a friendlier error.
+      Found and fixed a **real bug live** here: the constraint-violation
+      catch checked `err.code` directly, but drizzle-orm wraps the actual
+      Postgres error inside `err.cause` — `err.code` is always `undefined`,
+      so a genuine booking race would have thrown an unhandled 500 instead
+      of the intended friendly 409. Confirmed via a live concurrent-insert
+      test against the real `dbPool.transaction` path, both before (failed
+      to catch) and after (caught correctly) the fix.
+- [x] `api/vendor/appointments+api.ts` (GET list) +
+      `.../[id]/{confirm,complete,cancel,no-show}+api.ts` — vendor-side
+      lifecycle, `requireVendor` + ownership-checked, each fault-tolerant on
+      its `inngest.send()` (same fix already applied to the M5 order routes).
+- [x] `api/vendors/[id]+api.ts` — added the `services` query branch to the
+      existing (previously products-only) vendor-detail response.
+- [x] `src/inngest/appointment-lifecycle.ts` — `appointmentConfirmTimeout`
+      (mirrors `orderAcceptTimeout`: on `appointment/booked`, notifies the
+      vendor, `step.waitForEvent`s up to `APPOINTMENT_CONFIRM_TIMEOUT_MINUTES`
+      for `appointment/confirmed`, auto-cancels via `cancelAppointment(id,
+      "system")` on timeout) and `appointmentReminders` (first use of
+      `step.sleepUntil` + `cancelOn` in this codebase: triggered on
+      `appointment/confirmed`, sends a push 24h-before and 1h-before,
+      `cancelOn` stops pending reminders the moment `appointment/cancelled`
+      fires). Both registered in `api/inngest+api.ts`.
+- [x] `vendor/products/index.tsx` (`ServiceCatalog`), `new.tsx`, `[id]/edit.tsx`
+      — rewired to the real `/api/services`. Found a real gap: `edit.tsx` had
+      **no service branch at all** (always hit `/api/products/:id`, silently
+      wrong for services) — added one mirroring the product branch. New
+      services default `isActive: false`, matching the mock's original
+      "stays off until availability is set" behavior.
+- [x] `vendor/products/availability.tsx` — rewired to real
+      `api/vendor/availability` + `api/vendor/appointments`; added a new
+      **Weekly Hours** section (not in the original checklist — the mock UI
+      only ever edited day-specific overrides, with no way to set the base
+      recurring pattern a fresh vendor needs before any override matters).
+      Found and fixed **two real bugs live** here, both reported directly
+      by the user during testing: (1) a race where the screen's on-focus
+      `GET` could resolve *after* a save and silently overwrite the
+      just-saved state with stale pre-save data — the DB always had the
+      correct data, but the UI could appear to have "lost" it; fixed with a
+      request-ticket guard that discards a stale in-flight load after any
+      local save. (2) the day editor always reset to an editable "Save day"
+      state even for an already-saved day, so there was no way to tell at a
+      glance that a date was already configured — reworked into a read-only
+      "Saved" view (badge + the actual saved windows) with an explicit
+      **Edit** button, plus **Cancel** to discard in-progress edits without
+      touching what's persisted.
+- [x] `store/[id].tsx` — replaced the "booking coming later" placeholder
+      with a real service list from the extended `GET /api/vendors/[id]`
+      response, each row linking to `/book/[serviceId]`.
+- [x] `book/[serviceId].tsx` — rewired off the mock store to real service
+      detail, month-availability, slots, and `POST /api/appointments`
+      fetches; kept the existing `MonthCalendar`/`SlotGrid`/success-view
+      components as-is (already pure/presentational). Added a fee breakdown
+      line and total-inclusive Confirm button once the ₦100 fee was added.
+      Found and fixed a **real UI bug live**: the confirm bar's
+      `SafeAreaView` only reserved the top edge, so on-device the bottom
+      gesture-nav bar overlapped the Confirm button — fixed to reserve both
+      edges, matching every other screen with a fixed bottom bar
+      (checkout, payment, the cart bar).
+- [x] `(tabs)/orders/index.tsx`, `vendor/orders.tsx` (`ServiceBookings`
+      branch) — rewired the appointment halves to real
+      `/api/appointments`/`/api/vendor/appointments` and the real
+      cancel/confirm/complete/no-show actions, matching the treatment
+      already given to the product-order halves in M5. Both now display the
+      fee-inclusive `totalMinor`, matching how the sibling product-order
+      views already display `order.totalMinor`.
+- [x] **Verify — done 2026-09-17, real device + a live-code DB simulation for
+      the time-gated paths, real money movement throughout.** Booked a real
+      slot (Full Set Acrylics, ₦5,000 + ₦100 fee): student wallet debited
+      exactly ₦5,100 in one transaction, appointment row correct
+      (`scheduledStart`/`End` matched the picked WAT slot exactly). Vendor
+      confirmed via the real UI: status flipped to `confirmed`, **no**
+      additional wallet transaction (money already moved at booking). Since
+      `complete`/`no-show` only unlock after the scheduled end passes (this
+      slot was 1.5 days out), verified those two — plus a fresh cancel —
+      by calling the *real* `completeAppointment`/`cancelAppointment`/
+      `noShowAppointment` functions directly (not reimplemented logic)
+      against DB rows with their timestamps shifted into the past, per the
+      user's explicit choice over waiting a real 1.5 days: complete credited
+      the vendor exactly ₦5,000 (not the ₦5,100 total); cancelling a
+      *confirmed* future appointment refunded the full ₦5,100 (proving the
+      looser-than-orders cancellation window actually took effect); no-show
+      on a past-due confirmed appointment refunded the full ₦5,100 with
+      `cancelledBy: "vendor"`. Double-booking race re-verified against the
+      real `dbPool.transaction` path after the `err.cause` fix above: two
+      concurrent inserts for the identical slot — one succeeds, the other is
+      now correctly caught as a friendly slot-taken condition. Confirm-timeout
+      wiring verified via the Inngest dev server's own API: booked a slot
+      without confirming, confirmed the `appointment/booked` event fired and
+      the `appointmentConfirmTimeout` run is `Running` (correctly parked in
+      `step.waitForEvent`) — not run to the full 60-minute timeout for real,
+      by explicit choice, since the mechanism is identical to `orderAcceptTimeout`,
+      already live-verified for real in M5. One process note: cleaning up two
+      synthetic test appointments by deleting their `wallet_transactions` rows
+      didn't reverse the balance those rows had already applied — caught in a
+      follow-up balance check and corrected directly; a reminder that a
+      ledger's running balance and its transaction log are two separate
+      things to keep in sync when reverting test data by hand.
 
 ## 7. Vendor payouts, generalized (Milestone 7)
 
