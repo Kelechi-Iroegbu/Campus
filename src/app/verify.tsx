@@ -58,10 +58,15 @@ export default function Verify() {
     return () => clearInterval(id);
   }, [secondsLeft]);
 
-  const navigateHome = useCallback(
-    () => router.replace("/register-profile"),
-    [router],
-  );
+  // Route through `/post-auth` like every other auth screen — it resolves
+  // the account's real area (vendor application, student onboarding, an
+  // existing vendor/courier dashboard, …) instead of guessing here.
+  const role = (signUp?.unsafeMetadata as { role?: string } | undefined)?.role;
+  const postAuthHref = role ? `/post-auth?role=${role}` : "/post-auth";
+
+  const navigateHome = useCallback(() => {
+    router.replace(postAuthHref as never);
+  }, [router, postAuthHref]);
 
   const onVerify = useCallback(async () => {
     if (!signUp) return;
@@ -104,7 +109,7 @@ export default function Verify() {
   }, [code, submitting, onVerify]);
 
   if (isLoaded && isSignedIn && !completing) {
-    return <Redirect href="/(tabs)" />;
+    return <Redirect href={postAuthHref as never} />;
   }
 
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, "0");

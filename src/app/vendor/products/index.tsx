@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Pressable,
@@ -21,13 +22,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { useVendorCopy, useVendorMode } from "@/lib/vendorMode";
-import {
-  removeService,
-  setServiceActive,
-  useBookingStore,
-} from "@/data/serviceBooking";
+import { useApi } from "@/lib/api";
 
 // --- shared with the other vendor tabs so the section stays uniform ---
 const HEADING = "#14142B";
@@ -53,34 +50,10 @@ const cardStyle = {
 type Product = {
   id: string;
   name: string;
-  price: string;
-  image?: number;
-  inStock: boolean;
+  priceMinor: number;
+  imageUrl: string | null;
+  isActive: boolean;
 };
-
-const INITIAL: Product[] = [
-  {
-    id: "1",
-    name: "Jollof Rice & Chicken",
-    price: "₦1,500",
-    image: require("@/assets/images/vendor/food-jollof-chicken.png"),
-    inStock: true,
-  },
-  {
-    id: "2",
-    name: "Fried Rice & Turkey",
-    price: "₦1,800",
-    image: require("@/assets/images/vendor/food-fried-rice.png"),
-    inStock: true,
-  },
-  {
-    id: "3",
-    name: "Moi Moi (extra)",
-    price: "₦400",
-    image: require("@/assets/images/vendor/food-moi-moi.png"),
-    inStock: false,
-  },
-];
 
 function Toggle({ value, onChange }: { value: boolean; onChange: () => void }) {
   const p = useSharedValue(value ? 1 : 0);
@@ -165,13 +138,15 @@ function ProductRow({
   copy,
   onToggle,
   onDelete,
+  onPress,
 }: {
   product: Product;
   copy: ReturnType<typeof useVendorCopy>;
   onToggle: () => void;
   onDelete: () => void;
+  onPress: () => void;
 }) {
-  const dim = !product.inStock;
+  const dim = !product.isActive;
 
   const confirmDelete = (swipeable: SwipeableMethods) => {
     Alert.alert(
@@ -193,18 +168,22 @@ function ProductRow({
         <DeleteAction drag={drag} onPress={() => confirmDelete(swipeable)} />
       )}
     >
-      <View style={cardStyle} className="flex-row items-center gap-4 p-4">
+      <Pressable
+        onPress={onPress}
+        style={cardStyle}
+        className="flex-row items-center gap-4 p-4"
+      >
         <View
           className="items-center justify-center rounded-xl"
           style={{
             width: 88,
             height: 88,
-            backgroundColor: product.image != null ? "#FBEFE6" : "#FCE7EC",
+            backgroundColor: product.imageUrl ? "#FBEFE6" : "#FCE7EC",
           }}
         >
-          {product.image != null ? (
+          {product.imageUrl ? (
             <Image
-              source={product.image}
+              source={{ uri: product.imageUrl }}
               style={{
                 width: 76,
                 height: 76,
@@ -215,7 +194,7 @@ function ProductRow({
             />
           ) : (
             <Ionicons
-              name="cut-outline"
+              name="fast-food-outline"
               size={30}
               color="#E8497A"
               style={{ opacity: dim ? 0.5 : 1 }}
@@ -234,20 +213,20 @@ function ProductRow({
             className="mt-1 text-[16px] font-inter-bold"
             style={{ color: dim ? "#E9A98D" : ORANGE }}
           >
-            {product.price}
+            {naira(product.priceMinor)}
           </Text>
         </View>
 
         <View className="items-center gap-2">
-          <Toggle value={product.inStock} onChange={onToggle} />
+          <Toggle value={product.isActive} onChange={onToggle} />
           <Text
             className="text-[13px] font-inter-semibold"
-            style={{ color: product.inStock ? GREEN : SUBTLE }}
+            style={{ color: product.isActive ? GREEN : SUBTLE }}
           >
-            {product.inStock ? copy.inStockLabel : copy.soldOutLabel}
+            {product.isActive ? copy.inStockLabel : copy.soldOutLabel}
           </Text>
         </View>
-      </View>
+      </Pressable>
     </ReanimatedSwipeable>
   );
 }
@@ -259,16 +238,49 @@ export default function VendorProducts() {
 
 function ProductCatalog() {
   const router = useRouter();
+  const api = useApi();
   const copy = useVendorCopy();
-  const [products, setProducts] = useState<Product[]>(INITIAL);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const toggle = (id: string) =>
+  const load = useCallback(async () => {
+    try {
+      const res = await api("/api/products");
+      if (!res.ok) throw new Error(String(res.status));
+      const j = (await res.json()) as { products: Product[] };
+      setProducts(j.products ?? []);
+    } catch {
+      setProducts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
+  const toggle = async (id: string) => {
+    const current = products.find((p) => p.id === id);
+    if (!current) return;
+    const next = !current.isActive;
     setProducts((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, inStock: !p.inStock } : p)),
+      prev.map((p) => (p.id === id ? { ...p, isActive: next } : p)),
     );
+    const res = await api(`/api/products/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ isActive: next }),
+    });
+    if (!res.ok) void load(); // revert to server truth
+  };
 
-  const remove = (id: string) =>
+  const remove = async (id: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== id));
+    const res = await api(`/api/products/${id}`, { method: "DELETE" });
+    if (!res.ok) void load();
+  };
 
   return (
     <View className="flex-1" style={{ backgroundColor: SCREEN_BG }}>
@@ -328,13 +340,11 @@ function ProductCatalog() {
           ) : null}
 
           {/* Product list */}
-          {products.length === 0 ? (
+          {loading ? (
+            <ActivityIndicator color={ORANGE} style={{ marginTop: 60 }} />
+          ) : products.length === 0 ? (
             <View className="mt-24 items-center px-8">
-              <Ionicons
-                name="fast-food-outline"
-                size={44}
-                color="#C9C2B8"
-              />
+              <Ionicons name="fast-food-outline" size={44} color="#C9C2B8" />
               <Text
                 className="mt-4 text-center text-[15px] font-inter-regular"
                 style={{ color: SUBTLE }}
@@ -351,6 +361,7 @@ function ProductCatalog() {
                   copy={copy}
                   onToggle={() => toggle(p.id)}
                   onDelete={() => remove(p.id)}
+                  onPress={() => router.push(`/vendor/products/${p.id}/edit` as never)}
                 />
               ))}
             </View>
@@ -451,24 +462,79 @@ function ServiceRow({
   );
 }
 
+type Service = {
+  id: string;
+  name: string;
+  description: string | null;
+  durationMinutes: number;
+  priceMinor: number;
+  isActive: boolean;
+};
+
 function ServiceCatalog() {
   const router = useRouter();
+  const api = useApi();
   const copy = useVendorCopy();
-  const { services, availabilityReady } = useBookingStore();
+  const [services, setServices] = useState<Service[]>([]);
+  const [availabilityReady, setAvailabilityReady] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const attemptToggle = (id: string, next: boolean) => {
-    if (setServiceActive(id, next)) return;
-    Alert.alert(
-      "Add availability first",
-      "A service can't go live until you've set the days and times you take bookings.",
-      [
-        { text: "Not now", style: "cancel" },
-        {
-          text: "Set availability",
-          onPress: () => router.push("/vendor/products/availability" as never),
-        },
-      ],
-    );
+  const load = useCallback(async () => {
+    try {
+      const [servicesRes, availabilityRes] = await Promise.all([
+        api("/api/services"),
+        api("/api/vendor/availability"),
+      ]);
+      if (servicesRes.ok) {
+        const j = (await servicesRes.json()) as { services: Service[] };
+        setServices(j.services ?? []);
+      }
+      if (availabilityRes.ok) {
+        const j = (await availabilityRes.json()) as {
+          weekly: Record<string, { start: string; end: string }[]>;
+        };
+        setAvailabilityReady(Object.values(j.weekly ?? {}).some((w) => w.length > 0));
+      }
+    } catch {
+      setServices([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
+  const attemptToggle = async (id: string, next: boolean) => {
+    if (next && !availabilityReady) {
+      Alert.alert(
+        "Add availability first",
+        "A service can't go live until you've set the days and times you take bookings.",
+        [
+          { text: "Not now", style: "cancel" },
+          {
+            text: "Set availability",
+            onPress: () => router.push("/vendor/products/availability" as never),
+          },
+        ],
+      );
+      return;
+    }
+    setServices((prev) => prev.map((s) => (s.id === id ? { ...s, isActive: next } : s)));
+    const res = await api(`/api/services/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ isActive: next }),
+    });
+    if (!res.ok) void load();
+  };
+
+  const remove = async (id: string) => {
+    setServices((prev) => prev.filter((s) => s.id !== id));
+    const res = await api(`/api/services/${id}`, { method: "DELETE" });
+    if (!res.ok) void load();
   };
 
   return (
@@ -562,7 +628,9 @@ function ServiceCatalog() {
             </Text>
           ) : null}
 
-          {services.length === 0 ? (
+          {loading ? (
+            <ActivityIndicator color={ORANGE} style={{ marginTop: 60 }} />
+          ) : services.length === 0 ? (
             <View className="mt-20 items-center px-8">
               <Ionicons name="cut-outline" size={44} color="#C9C2B8" />
               <Text
@@ -579,11 +647,11 @@ function ServiceCatalog() {
                   key={s.id}
                   name={s.name}
                   price={naira(s.priceMinor)}
-                  meta={`${s.durationMin} min`}
-                  active={s.active}
+                  meta={`${s.durationMinutes} min`}
+                  active={s.isActive}
                   blocked={!availabilityReady}
-                  onToggle={() => attemptToggle(s.id, !s.active)}
-                  onDelete={() => removeService(s.id)}
+                  onToggle={() => attemptToggle(s.id, !s.isActive)}
+                  onDelete={() => remove(s.id)}
                 />
               ))}
             </View>

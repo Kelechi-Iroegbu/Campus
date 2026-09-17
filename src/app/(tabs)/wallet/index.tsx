@@ -1,11 +1,11 @@
 import { useCallback, useState } from "react";
-import { Image, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useAuth } from "@clerk/expo";
+import { useApi } from "@/lib/api";
 
 function formatNaira(minor: number) {
   return `₦${(minor / 100).toLocaleString(undefined, {
@@ -74,7 +74,7 @@ const transactions: Transaction[] = [
 
 export default function Wallet() {
   const router = useRouter();
-  const { getToken } = useAuth();
+  const api = useApi();
   const [balanceMinor, setBalanceMinor] = useState<number | null>(null);
 
   useFocusEffect(
@@ -82,10 +82,7 @@ export default function Wallet() {
       let cancelled = false;
       (async () => {
         try {
-          const token = await getToken();
-          const res = await fetch("/api/wallet/transactions", {
-            headers: token ? { authorization: `Bearer ${token}` } : undefined,
-          });
+          const res = await api("/api/wallet/transactions");
           if (!res.ok) return;
           const data = (await res.json()) as { balanceMinor?: number };
           if (!cancelled && typeof data.balanceMinor === "number") {
@@ -98,7 +95,7 @@ export default function Wallet() {
       return () => {
         cancelled = true;
       };
-    }, [getToken]),
+    }, [api]),
   );
 
   return (
@@ -162,9 +159,16 @@ export default function Wallet() {
               />
 
               <Text className="text-[15px] font-inter-medium text-white/90">Wallet Balance</Text>
-              <Text className="mt-2 text-[36px] font-inter-bold text-white">
-                {balanceMinor === null ? "₦4,250.00" : formatNaira(balanceMinor)}
-              </Text>
+              {balanceMinor === null ? (
+                <ActivityIndicator
+                  color="#FFFFFF"
+                  style={{ marginTop: 10, alignSelf: "flex-start" }}
+                />
+              ) : (
+                <Text className="mt-2 text-[36px] font-inter-bold text-white">
+                  {formatNaira(balanceMinor)}
+                </Text>
+              )}
               <Pressable
                 className="mt-4 flex-row items-center gap-2 self-start rounded-full bg-white px-5 py-3"
                 onPress={() => router.push("/wallet/topup")}

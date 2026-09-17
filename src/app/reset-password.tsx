@@ -86,7 +86,8 @@ export default function ResetPassword() {
   const codeInputRef = useRef<TextInput>(null);
   const submitting = fetchStatus === "fetching";
 
-  const goToApp = useCallback(() => router.replace("/(tabs)"), [router]);
+  // Resolve student / vendor / courier from the account, not a hardcoded home.
+  const goToApp = useCallback(() => router.replace("/post-auth"), [router]);
 
   useEffect(() => {
     if (step !== "code" || secondsLeft <= 0) return;
@@ -213,7 +214,7 @@ export default function ResetPassword() {
   }, [step, router]);
 
   if (isLoaded && isSignedIn) {
-    return <Redirect href="/(tabs)" />;
+    return <Redirect href="/post-auth" />;
   }
 
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, "0");

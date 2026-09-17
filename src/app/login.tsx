@@ -43,7 +43,14 @@ export default function Login() {
 
   const submitting = fetchStatus === "fetching";
 
-  const goToApp = useCallback(() => router.replace("/(tabs)"), [router]);
+  // `/post-auth` resolves the right area (student / vendor / courier) from
+  // the account state — never assume the student home here. Always an
+  // existing account (Clerk `useSignIn`); if it's also a vendor, post-auth
+  // asks which side to use the first time, then remembers the choice.
+  const goToApp = useCallback(
+    () => router.replace("/post-auth"),
+    [router],
+  );
 
   const onLogin = useCallback(async () => {
     if (!signIn) return;
@@ -76,7 +83,7 @@ export default function Login() {
   }, [signIn, email, password, goToApp]);
 
   if (isLoaded && isSignedIn) {
-    return <Redirect href="/(tabs)" />;
+    return <Redirect href="/post-auth" />;
   }
 
   return (

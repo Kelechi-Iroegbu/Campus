@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import * as WebBrowser from "expo-web-browser";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useAuth } from "@clerk/expo";
+import { useApi } from "@/lib/api";
 
 const cardShadow = {
   shadowColor: "#1F1F1F",
@@ -26,7 +26,7 @@ const chips = [
 
 export default function TopUpWallet() {
   const router = useRouter();
-  const { getToken } = useAuth();
+  const api = useApi();
   const params = useLocalSearchParams<{ reference?: string; amount?: string }>();
 
   const initialAmount =
@@ -38,6 +38,13 @@ export default function TopUpWallet() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // `confirmTopup` can legitimately fire twice for the same return trip —
+  // once from `WebBrowser.openAuthSessionAsync`'s own promise resolving,
+  // and again from the OS actually deep-linking back into this screen with
+  // `?reference=`. Guards against processing (and re-navigating for) the
+  // same reference more than once, which otherwise shows as the wallet
+  // screen flashing/refetching repeatedly.
+  const confirmedRef = useRef<string | null>(null);
 
   const formattedAmount = amount ? Number(amount).toLocaleString() : "";
 
@@ -52,30 +59,35 @@ export default function TopUpWallet() {
     setSelectedChip(["1000", "2000", "5000"].includes(digits) ? digits : "other");
   }
 
-  const confirmTopup = useCallback(async () => {
-    setConfirming(true);
-    try {
-      const token = await getToken();
-      const res = await fetch("/api/wallet/transactions", {
-        headers: token ? { authorization: `Bearer ${token}` } : undefined,
-      });
-      if (res.ok) {
-        // Balance is refetched by the Wallet screen on focus; just head back.
-        router.replace("/wallet");
-        return;
+  const confirmTopup = useCallback(
+    async (reference: string) => {
+      if (confirmedRef.current === reference) return;
+      confirmedRef.current = reference;
+      setConfirming(true);
+      try {
+        // Verifies + credits directly — doesn't depend on Paystack's webhook
+        // being reachable (it isn't, in local dev with no public tunnel).
+        await api("/api/wallet/verify", {
+          method: "POST",
+          body: JSON.stringify({ reference }),
+        });
+      } catch {
+        // fall through — the webhook (if reachable) or a later manual retry
+        // still covers this; the wallet screen shows whatever the balance
+        // actually is on refetch.
+      } finally {
+        setConfirming(false);
       }
-    } catch {
-      // fall through
-    } finally {
-      setConfirming(false);
-    }
-    router.replace("/wallet");
-  }, [getToken, router]);
+      // Balance is refetched by the Wallet screen on focus.
+      router.replace("/wallet");
+    },
+    [api, router],
+  );
 
   // Returned from the Paystack tab via the deep link.
   useEffect(() => {
     if (params.reference) {
-      void confirmTopup();
+      void confirmTopup(params.reference);
     }
   }, [params.reference, confirmTopup]);
 
@@ -89,20 +101,15 @@ export default function TopUpWallet() {
 
     setBusy(true);
     try {
-      const token = await getToken();
-      const res = await fetch("/api/wallet/topup", {
+      const res = await api("/api/wallet/topup", {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
-        },
         body: JSON.stringify({ amountMinor: Math.round(naira * 100) }),
       });
       const data = (await res.json().catch(() => null)) as
-        | { authorizationUrl?: string; error?: string }
+        | { authorizationUrl?: string; reference?: string; error?: string }
         | null;
 
-      if (!res.ok || !data?.authorizationUrl) {
+      if (!res.ok || !data?.authorizationUrl || !data.reference) {
         setError(data?.error ?? "Couldn't start the top-up. Try again.");
         return;
       }
@@ -112,7 +119,7 @@ export default function TopUpWallet() {
         RETURN_URL,
       );
       if (result.type === "success") {
-        void confirmTopup();
+        void confirmTopup(data.reference);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");

@@ -58,7 +58,11 @@ export async function POST(request: Request) {
       amountMinor,
       reference,
       callbackUrl,
-      metadata: { userId: user.id, walletId: wallet.id, purpose: "wallet_topup" },
+      metadata: {
+        profileId: user.id,
+        walletId: wallet.id,
+        purpose: "wallet_topup",
+      },
       channels: ["card", "bank", "ussd", "bank_transfer"],
     });
   } catch (err) {
@@ -69,7 +73,7 @@ export async function POST(request: Request) {
   }
 
   await db.insert(paystackTransactions).values({
-    userId: user.id,
+    profileId: user.id,
     walletId: wallet.id,
     type: "topup",
     reference,

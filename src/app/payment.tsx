@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ActivityIndicator,
@@ -10,10 +10,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useAuth } from "@clerk/expo";
+import { Ionicons } from "@expo/vector-icons";
+import { useApi } from "@/lib/api";
+import { useCartStore, cartSubtotalMinor } from "@/lib/cartStore";
+import { PLATFORM_FEE_MINOR } from "@/lib/constants";
 import {
   BORDER_GRAY,
   ORANGE,
@@ -25,116 +27,68 @@ import {
 const SUCCESS_GREEN = "#5FA65A";
 const LIGHT_PEACH = "#FDEAE0";
 const CARD_BORDER_PEACH = "#F6DCC3";
-const BAG_DARK = "#232323";
-const DELIVERY_BLUE_BG = "#DCEAFB";
-const DELIVERY_BLUE = "#3E7BD6";
-const SERVICE_LAVENDER_BG = "#F0E0F7";
-const SERVICE_PURPLE = "#8B4FA6";
 const CREAM = "#FBF3EC";
 
-// Shown until the live balance loads (or if the request fails offline).
-const FALLBACK_BALANCE_MINOR = 425000;
-
-type CartItemParam = {
-  id: string;
-  name: string;
-  price: number;
-  quantity: number;
-  image?: number;
-  category?: string;
-};
-
-function formatNaira(amount: number) {
-  return `₦${amount.toLocaleString()}`;
+function formatNaira(minor: number) {
+  return `₦${(minor / 100).toLocaleString()}`;
 }
 
 export default function Payment() {
   const router = useRouter();
-  const { getToken } = useAuth();
-  const params = useLocalSearchParams<{
-    items?: string;
-    deliveryFee?: string;
-    serviceFee?: string;
-    vendorName?: string;
-  }>();
+  const api = useApi();
+  const { vendorName, items, clear } = useCartStore();
 
-  const items = useMemo<CartItemParam[]>(() => {
-    try {
-      const parsed = JSON.parse(params.items ?? "[]");
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }, [params.items]);
-
-  const deliveryFee = Number(params.deliveryFee ?? 0);
-  const serviceFee = Number(params.serviceFee ?? 0);
-  const vendorName = params.vendorName || "Vendor";
-  const subtotal = items.reduce(
-    (sum, item) => sum + item.price * item.quantity,
-    0,
-  );
-  const total = subtotal + deliveryFee + serviceFee;
+  const subtotalMinor = cartSubtotalMinor(items);
+  const totalMinor = subtotalMinor + PLATFORM_FEE_MINOR;
 
   const [balanceMinor, setBalanceMinor] = useState<number | null>(null);
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const balance = (balanceMinor ?? FALLBACK_BALANCE_MINOR) / 100;
-  const shortfall = Math.max(0, total - balance);
-  const canPay = shortfall === 0 && total > 0;
+  const shortfall = Math.max(0, totalMinor - (balanceMinor ?? 0));
+  const canPay = balanceMinor !== null && shortfall === 0 && totalMinor > 0;
 
   const loadBalance = useCallback(async () => {
     try {
-      const token = await getToken();
-      const res = await fetch("/api/wallet/transactions", {
-        headers: token ? { authorization: `Bearer ${token}` } : undefined,
-      });
+      const res = await api("/api/wallet/transactions");
       if (!res.ok) return;
       const data = (await res.json()) as { balanceMinor?: number };
       if (typeof data.balanceMinor === "number") setBalanceMinor(data.balanceMinor);
     } catch {
-      // Keep the fallback balance.
+      // balanceMinor stays null; canPay stays false until it loads.
     }
-  }, [getToken]);
+  }, [api]);
 
   useEffect(() => {
     void loadBalance();
   }, [loadBalance]);
 
   const handlePay = useCallback(async () => {
-    if (!canPay || placing) return;
+    if (!canPay || placing || items.length === 0) return;
     setError(null);
     setPlacing(true);
     try {
-      const token = await getToken();
-      // The atomic wallet debit + order insert happens server-side
-      // (PLAN.md Milestone 5 — POST /api/orders, one Postgres transaction).
-      const res = await fetch("/api/orders", {
+      const res = await api("/api/orders", {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
-        },
         body: JSON.stringify({
-          items: items.map((i) => ({ id: i.id, quantity: i.quantity })),
-          deliveryFeeMinor: Math.round(deliveryFee * 100),
-          serviceFeeMinor: Math.round(serviceFee * 100),
+          items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
         }),
       });
-      if (res.ok) {
-        router.replace("/(tabs)/orders");
+      const data = (await res.json().catch(() => null)) as
+        | { order?: { id: string }; error?: string }
+        | null;
+      if (res.ok && data?.order?.id) {
+        clear();
+        router.replace(`/orders/${data.order.id}` as never);
         return;
       }
-      const data = (await res.json().catch(() => null)) as { error?: string } | null;
       setError(data?.error ?? "Couldn't place the order. Try again.");
     } catch {
-      // Ordering endpoint not wired yet — keep the existing stub behaviour.
-      router.replace("/(tabs)/orders");
+      setError("Something went wrong. Check your connection and try again.");
     } finally {
       setPlacing(false);
     }
-  }, [canPay, placing, getToken, items, deliveryFee, serviceFee, router]);
+  }, [canPay, placing, items, api, clear, router]);
 
   return (
     <View className="flex-1" style={{ backgroundColor: CREAM }}>
@@ -189,19 +143,19 @@ export default function Payment() {
                   className="text-[11px] font-inter-semibold"
                   style={{ color: ORANGE }}
                 >
-                  {vendorName}
+                  {vendorName ?? "Vendor"}
                 </Text>
               </View>
             </View>
 
             {items.map((item) => (
               <View
-                key={item.id}
+                key={item.productId}
                 className="flex-row items-center gap-3 px-4 pb-3.5"
               >
-                {item.image ? (
+                {item.imageUrl ? (
                   <Image
-                    source={item.image}
+                    source={{ uri: item.imageUrl }}
                     style={{ width: 60, height: 60, borderRadius: 14 }}
                     resizeMode="cover"
                   />
@@ -225,11 +179,10 @@ export default function Payment() {
                     style={{ color: TEXT_GRAY }}
                   >
                     Qty: {item.quantity}
-                    {item.category ? ` • ${item.category}` : ""}
                   </Text>
                 </View>
                 <Text className="text-[15px] font-inter-bold text-[#1F1F1F]">
-                  {formatNaira(item.price * item.quantity)}
+                  {formatNaira(item.priceMinor * item.quantity)}
                 </Text>
               </View>
             ))}
@@ -239,27 +192,15 @@ export default function Payment() {
             <View className="py-1.5">
               <FeeRow
                 icon={<Ionicons name="bag-outline" size={13} color="#fff" />}
-                iconBg={BAG_DARK}
+                iconBg="#232323"
                 label="Product price"
-                value={subtotal}
+                value={subtotalMinor}
               />
               <FeeRow
-                icon={
-                  <MaterialCommunityIcons
-                    name="moped"
-                    size={14}
-                    color={DELIVERY_BLUE}
-                  />
-                }
-                iconBg={DELIVERY_BLUE_BG}
-                label="Delivery fee"
-                value={deliveryFee}
-              />
-              <FeeRow
-                icon={<Ionicons name="flash" size={13} color={SERVICE_PURPLE} />}
-                iconBg={SERVICE_LAVENDER_BG}
-                label="Service fee"
-                value={serviceFee}
+                icon={<Ionicons name="pricetag-outline" size={13} color={ORANGE} />}
+                iconBg={LIGHT_PEACH}
+                label="Platform fee"
+                value={PLATFORM_FEE_MINOR}
               />
             </View>
 
@@ -273,7 +214,7 @@ export default function Payment() {
                 className="text-[19px] font-inter-bold"
                 style={{ color: ORANGE }}
               >
-                {formatNaira(total)}
+                {formatNaira(totalMinor)}
               </Text>
             </View>
           </View>
@@ -299,26 +240,32 @@ export default function Payment() {
                   CampUs Wallet
                 </Text>
               </View>
-              <Text className="mt-2 text-[26px] font-inter-bold text-white">
-                {formatNaira(balance)}
-              </Text>
-              {canPay ? (
-                <Text className="mt-1 text-[12px] font-inter-medium text-white/90">
-                  {formatNaira(total)} will be deducted for this order.
-                </Text>
+              {balanceMinor === null ? (
+                <ActivityIndicator color="#FFFFFF" style={{ marginTop: 10, alignSelf: "flex-start" }} />
               ) : (
-                <Text className="mt-1 text-[12px] font-inter-medium text-white/90">
-                  You&apos;re {formatNaira(shortfall)} short for this order.
-                </Text>
+                <>
+                  <Text className="mt-2 text-[26px] font-inter-bold text-white">
+                    {formatNaira(balanceMinor)}
+                  </Text>
+                  {canPay ? (
+                    <Text className="mt-1 text-[12px] font-inter-medium text-white/90">
+                      {formatNaira(totalMinor)} will be deducted for this order.
+                    </Text>
+                  ) : (
+                    <Text className="mt-1 text-[12px] font-inter-medium text-white/90">
+                      You&apos;re {formatNaira(shortfall)} short for this order.
+                    </Text>
+                  )}
+                </>
               )}
             </LinearGradient>
           </View>
 
-          {shortfall > 0 && (
+          {balanceMinor !== null && shortfall > 0 && (
             <Pressable
               onPress={() =>
                 router.push(
-                  `/wallet/topup?amount=${Math.ceil(shortfall)}` as never,
+                  `/wallet/topup?amount=${Math.ceil(shortfall / 100)}` as never,
                 )
               }
               className="mx-3 mt-3 flex-row items-center justify-between rounded-[14px] border px-4 py-4"
@@ -330,7 +277,7 @@ export default function Payment() {
                   className="text-[14px] font-inter-bold"
                   style={{ color: ORANGE }}
                 >
-                  Top up {formatNaira(Math.ceil(shortfall))}
+                  Top up {formatNaira(shortfall)}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={ORANGE} />
@@ -395,7 +342,7 @@ export default function Payment() {
                 {placing
                   ? "Placing order…"
                   : canPay
-                    ? `Pay ${formatNaira(total)} from Wallet`
+                    ? `Pay ${formatNaira(totalMinor)} from Wallet`
                     : "Top up to continue"}
               </Text>
             </LinearGradient>

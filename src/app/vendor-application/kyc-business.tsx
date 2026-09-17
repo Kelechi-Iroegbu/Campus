@@ -12,8 +12,7 @@ import type { ComponentProps } from "react";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { Redirect, Stack, useRouter } from "expo-router";
-import { useAuth } from "@clerk/expo";
+import { Stack, useRouter } from "expo-router";
 
 const ORANGE = "#F0531E";
 const HEADING = "#14142B";
@@ -97,7 +96,6 @@ function PasswordField({
 export default function KycBusiness() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isLoaded, isSignedIn } = useAuth();
 
   const [name, setName] = useState("Mama T's Kitchen");
   const [email, setEmail] = useState("mamat.kitchen@example.com");
@@ -107,10 +105,6 @@ export default function KycBusiness() {
   const [password, setPassword] = useState("Password123");
   const [confirm, setConfirm] = useState("Password123");
   const [agreed, setAgreed] = useState(true);
-
-  if (isLoaded && isSignedIn) {
-    return <Redirect href="/(tabs)" />;
-  }
 
   const goBack = () =>
     router.canGoBack()

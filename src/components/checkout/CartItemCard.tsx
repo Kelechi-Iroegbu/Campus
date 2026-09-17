@@ -12,11 +12,13 @@ export function CartItemCard({
   line,
   onIncrement,
   onDecrement,
+  onRemove,
   style,
 }: {
   line: CartLine;
   onIncrement: () => void;
   onDecrement: () => void;
+  onRemove?: () => void;
   style?: StyleProp<ViewStyle>;
 }) {
   const [height, setHeight] = useState(MIN_CARD_HEIGHT);
@@ -40,7 +42,13 @@ export function CartItemCard({
       ]}
       onLayout={onLayout}
     >
-      <CartItemRow line={line} onIncrement={onIncrement} onDecrement={onDecrement} scale={scale} />
+      <CartItemRow
+        line={line}
+        onIncrement={onIncrement}
+        onDecrement={onDecrement}
+        onRemove={onRemove}
+        scale={scale}
+      />
     </View>
   );
 }

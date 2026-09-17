@@ -1,5 +1,12 @@
-import { useState } from "react";
-import { Image, Pressable, ScrollView, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -9,9 +16,19 @@ import Animated, {
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { vendors } from "@/data/vendors";
+import { useApi } from "@/lib/api";
+import { useCartStore } from "@/lib/cartStore";
+
+type FeedVendor = {
+  id: string;
+  offeringType: "product" | "service" | "courier";
+  displayName: string;
+  description: string | null;
+  coverPhotoUrl: string | null;
+  categoryName: string | null;
+};
 
 const cardShadow = {
   shadowColor: "#1F1F1F",
@@ -49,6 +66,30 @@ const VENDOR_GAP = 12;
 
 export default function Home() {
   const router = useRouter();
+  const api = useApi();
+  const [vendors, setVendors] = useState<FeedVendor[]>([]);
+  const [loadingFeed, setLoadingFeed] = useState(true);
+  const cartCount = useCartStore((s) => s.items.reduce((n, i) => n + i.quantity, 0));
+
+  const loadFeed = useCallback(async () => {
+    try {
+      const res = await api("/api/vendors");
+      if (!res.ok) throw new Error(String(res.status));
+      const j = (await res.json()) as { vendors: FeedVendor[] };
+      setVendors(j.vendors ?? []);
+    } catch {
+      setVendors([]);
+    } finally {
+      setLoadingFeed(false);
+    }
+  }, [api]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadFeed();
+    }, [loadFeed]),
+  );
+
   const [cardHeight, setCardHeight] = useState<number | null>(null);
   // Exactly 4 cards + the 3 gaps between them — the viewport itself is capped
   // to this so a 5th card can never peek in at the bottom after a snap, on
@@ -97,13 +138,19 @@ export default function Home() {
                 Discover great food on campus
               </Text>
             </View>
-            <Pressable style={cardShadow} className="relative">
+            <Pressable
+              style={cardShadow}
+              className="relative"
+              onPress={() => router.push("/checkout")}
+            >
               <View className="h-12 w-12 items-center justify-center rounded-2xl bg-white">
                 <Ionicons name="cart-outline" size={22} color="#1F1F1F" />
               </View>
-              <View className="absolute -right-1.5 -top-1.5 h-5 w-5 items-center justify-center rounded-full bg-[#FE5206]">
-                <Text className="text-[10px] font-inter-bold text-white">3</Text>
-              </View>
+              {cartCount > 0 ? (
+                <View className="absolute -right-1.5 -top-1.5 h-5 w-5 items-center justify-center rounded-full bg-[#FE5206]">
+                  <Text className="text-[10px] font-inter-bold text-white">{cartCount}</Text>
+                </View>
+              ) : null}
             </Pressable>
           </View>
 
@@ -240,76 +287,104 @@ export default function Home() {
             setActivePage(Math.max(0, Math.min(pageCount - 1, page)));
           }}
         >
-          {vendors.map((vendor, index) => (
-            <Pressable
-              key={vendor.key}
-              style={cardShadow}
-              className="flex-row items-center gap-2 rounded-[18px] bg-white p-3"
-              onPress={() => router.push(`/store/${vendor.key}` as never)}
-              onLayout={
-                index === 0
-                  ? (e) => setCardHeight(e.nativeEvent.layout.height)
-                  : undefined
-              }
-            >
-              <Image
-                source={vendor.image}
-                style={{ width: 62, height: 58, borderRadius: 14 }}
-                resizeMode="cover"
-              />
-              <View className="flex-1 shrink">
-                <Text
-                  numberOfLines={1}
-                  className="text-[15px] font-inter-bold text-[#1F1F1F]"
-                >
-                  {vendor.name}
-                </Text>
-                <Text
-                  numberOfLines={1}
-                  className="mt-[2px] text-[13px] font-inter-regular text-[#8A8A8A]"
-                >
-                  {vendor.subtitle}
-                </Text>
-                <View className="mt-1 flex-row items-center gap-1">
-                  <Ionicons name="star" size={12} color="#F6B93B" />
-                  <Text className="text-[12px] font-inter-semibold text-[#1F1F1F]">
-                    {vendor.rating}
-                  </Text>
-                  <Text className="text-[12px] text-[#8A8A8A]"> · </Text>
-                  <Text
-                    numberOfLines={1}
-                    className="text-[12px] font-inter-regular text-[#8A8A8A]"
-                  >
-                    {vendor.time}
-                  </Text>
-                  <Text className="text-[12px] text-[#8A8A8A]"> · </Text>
-                  <Text className="text-[12px] font-inter-regular text-[#8A8A8A]">
-                    {vendor.distance}
-                  </Text>
-                </View>
-              </View>
-              {vendor.kind === "service" ? (
-                <LinearGradient
-                  colors={["#FF7DA8", "#E8497A"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
+          {loadingFeed ? (
+            <ActivityIndicator color="#FF6B4A" style={{ marginTop: 48 }} />
+          ) : vendors.length === 0 ? (
+            <View className="items-center px-8 pt-16">
+              <Ionicons name="storefront-outline" size={40} color="#D8CDBF" />
+              <Text className="mt-3 text-center text-[14px] font-inter-regular text-[#8A8A8A]">
+                No vendors on your campus yet. Check back soon.
+              </Text>
+            </View>
+          ) : (
+            vendors.map((vendor, index) => (
+              <Pressable
+                key={vendor.id}
+                style={cardShadow}
+                className="flex-row items-center gap-2 rounded-[18px] bg-white p-3"
+                onPress={() => router.push(`/store/${vendor.id}` as never)}
+                onLayout={
+                  index === 0
+                    ? (e) => setCardHeight(e.nativeEvent.layout.height)
+                    : undefined
+                }
+              >
+                <View
                   style={{
-                    flexDirection: "row",
+                    width: 62,
+                    height: 58,
+                    borderRadius: 14,
+                    overflow: "hidden",
+                    backgroundColor: "#F3E8DD",
                     alignItems: "center",
-                    gap: 4,
-                    borderRadius: 999,
-                    paddingHorizontal: 14,
-                    paddingVertical: 8,
+                    justifyContent: "center",
                   }}
                 >
-                  <Ionicons name="calendar-outline" size={13} color="#FFFFFF" />
-                  <Text className="text-[12px] font-inter-bold text-white">Book</Text>
-                </LinearGradient>
-              ) : (
-                <StatusPill status={vendor.status} />
-              )}
-            </Pressable>
-          ))}
+                  {vendor.coverPhotoUrl ? (
+                    <Image
+                      source={{ uri: vendor.coverPhotoUrl }}
+                      style={{ width: "100%", height: "100%" }}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Ionicons
+                      name={
+                        vendor.offeringType === "service"
+                          ? "sparkles-outline"
+                          : "fast-food-outline"
+                      }
+                      size={22}
+                      color="#C9A98D"
+                    />
+                  )}
+                </View>
+                <View className="flex-1 shrink">
+                  <Text
+                    numberOfLines={1}
+                    className="text-[15px] font-inter-bold text-[#1F1F1F]"
+                  >
+                    {vendor.displayName}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    className="mt-[2px] text-[13px] font-inter-regular text-[#8A8A8A]"
+                  >
+                    {vendor.description || vendor.categoryName || "Campus vendor"}
+                  </Text>
+                  {vendor.categoryName ? (
+                    <Text
+                      numberOfLines={1}
+                      className="mt-1 text-[12px] font-inter-medium text-[#B0A597]"
+                    >
+                      {vendor.categoryName}
+                    </Text>
+                  ) : null}
+                </View>
+                {vendor.offeringType === "service" ? (
+                  <LinearGradient
+                    colors={["#FF7DA8", "#E8497A"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 4,
+                      borderRadius: 999,
+                      paddingHorizontal: 14,
+                      paddingVertical: 8,
+                    }}
+                  >
+                    <Ionicons name="calendar-outline" size={13} color="#FFFFFF" />
+                    <Text className="text-[12px] font-inter-bold text-white">
+                      Book
+                    </Text>
+                  </LinearGradient>
+                ) : (
+                  <StatusPill status="Open" />
+                )}
+              </Pressable>
+            ))
+          )}
         </ScrollView>
         </View>
 

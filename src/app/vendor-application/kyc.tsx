@@ -1,5 +1,7 @@
 import { useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -14,8 +16,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
-import { Redirect, Stack, useRouter } from "expo-router";
-import { useAuth } from "@clerk/expo";
+import { Stack, useRouter } from "expo-router";
+import { useImageUpload } from "@/lib/useImageUpload";
+import { useVendorDraft } from "@/lib/vendorApplication";
 
 const ORANGE = "#F0531E";
 const HEADING = "#14142B";
@@ -63,11 +66,13 @@ function UploadCard({
   title,
   subtitle,
   filled,
+  uploading,
   onPress,
 }: {
   title: string;
   subtitle: string;
   filled: boolean;
+  uploading: boolean;
   onPress: () => void;
 }) {
   return (
@@ -83,6 +88,7 @@ function UploadCard({
       </Text>
       <Pressable
         onPress={onPress}
+        disabled={uploading}
         className="mt-3 items-center justify-center rounded-xl py-7"
         style={{
           borderWidth: 1.5,
@@ -91,17 +97,21 @@ function UploadCard({
           backgroundColor: "#FDF1EA",
         }}
       >
-        <Ionicons
-          name={filled ? "checkmark-circle" : "cloud-upload-outline"}
-          size={34}
-          color={ORANGE}
-        />
+        {uploading ? (
+          <ActivityIndicator color={ORANGE} />
+        ) : (
+          <Ionicons
+            name={filled ? "checkmark-circle" : "cloud-upload-outline"}
+            size={34}
+            color={ORANGE}
+          />
+        )}
       </Pressable>
       <Text
         className="mt-2.5 text-center text-[12px] font-inter-regular"
         style={{ color: LABEL }}
       >
-        {filled ? "Uploaded" : "JPG or PNG, up to 5MB"}
+        {uploading ? "Uploading…" : filled ? "Uploaded" : "JPG or PNG, up to 5MB"}
       </Text>
     </View>
   );
@@ -115,7 +125,9 @@ function formatDob(value: string) {
 
 export default function Kyc() {
   const router = useRouter();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { draft, patch } = useVendorDraft();
+  const govIdUpload = useImageUpload();
+  const selfieUpload = useImageUpload();
 
   const [fullName, setFullName] = useState("");
   const [dob, setDob] = useState("");
@@ -124,12 +136,24 @@ export default function Kyc() {
   const [idNumber, setIdNumber] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [govIdUploaded, setGovIdUploaded] = useState(false);
-  const [selfieUploaded, setSelfieUploaded] = useState(false);
 
-  if (isLoaded && isSignedIn) {
-    return <Redirect href="/(tabs)" />;
-  }
+  const onPickGovId = async () => {
+    const url = await govIdUpload.pickAndUpload({ aspect: [8, 5] });
+    if (url) {
+      patch({ govIdUrl: url });
+    } else if (govIdUpload.error) {
+      Alert.alert("Couldn't upload photo", govIdUpload.error);
+    }
+  };
+
+  const onPickSelfie = async () => {
+    const url = await selfieUpload.pickAndUpload({ aspect: [1, 1] });
+    if (url) {
+      patch({ selfieUrl: url });
+    } else if (selfieUpload.error) {
+      Alert.alert("Couldn't upload photo", selfieUpload.error);
+    }
+  };
 
   const goBack = () =>
     router.canGoBack()
@@ -137,7 +161,11 @@ export default function Kyc() {
       : router.replace("/vendor-application/cover-photo");
 
   const canContinue =
-    fullName.trim().length > 0 && idType !== null && idNumber.trim().length > 0;
+    fullName.trim().length > 0 &&
+    idType !== null &&
+    idNumber.trim().length > 0 &&
+    draft.govIdUrl !== null &&
+    draft.selfieUrl !== null;
 
   return (
     <View className="flex-1 bg-white">
@@ -267,14 +295,16 @@ export default function Kyc() {
               <UploadCard
                 title="Government ID"
                 subtitle="Upload front side"
-                filled={govIdUploaded}
-                onPress={() => setGovIdUploaded((v) => !v)}
+                filled={draft.govIdUrl !== null}
+                uploading={govIdUpload.uploading}
+                onPress={onPickGovId}
               />
               <UploadCard
                 title="Selfie"
                 subtitle="Take a clear selfie"
-                filled={selfieUploaded}
-                onPress={() => setSelfieUploaded((v) => !v)}
+                filled={draft.selfieUrl !== null}
+                uploading={selfieUpload.uploading}
+                onPress={onPickSelfie}
               />
             </View>
 

@@ -1,13 +1,13 @@
-import { useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
-import { Stack } from "expo-router";
+import { Stack, useFocusEffect } from "expo-router";
+import { useApi } from "@/lib/api";
 import { useVendorCopy, useVendorMode } from "@/lib/vendorMode";
-import { cancelAppointment, useBookingStore } from "@/data/serviceBooking";
-import { format12, formatDayLong, formatNaira } from "@/lib/booking";
+import { format12, formatDayLong, formatNaira, watLocalFromIso } from "@/lib/booking";
 
 // --- shared with src/app/vendor/dashboard.tsx so the vendor tabs are uniform ---
 const CHARCOAL = "#14142B"; // HEADING
@@ -29,57 +29,24 @@ const cardStyle = {
   elevation: 2,
 };
 
-type Status = "new" | "preparing" | "ready" | "declined";
-
-// One step back through the order lifecycle.
-const PREV_STATUS: Partial<Record<Status, Status>> = {
-  preparing: "new",
-  ready: "preparing",
-  declined: "new",
-};
+type Status = "placed" | "accepted" | "ready" | "completed" | "cancelled";
 
 type Order = {
-  code: string;
-  customer: string;
-  location: string;
-  items: string;
-  amount: string;
+  id: string;
   status: Status;
+  totalMinor: number;
+  items: { productName: string; quantity: number }[];
 };
 
-const INITIAL: Order[] = [
-  {
-    code: "BN-2291",
-    customer: "Chidimma A.",
-    location: "Block C, Rm 214",
-    items: "Jollof Rice & Chicken × 2",
-    amount: "₦3,000",
-    status: "new",
-  },
-  {
-    code: "BN-2290",
-    customer: "Femi O.",
-    location: "Block A, Rm 108",
-    items: "Fried Rice & Turkey × 1",
-    amount: "₦1,800",
-    status: "preparing",
-  },
-  {
-    code: "BN-2288",
-    customer: "Amaka T.",
-    location: "Block B, Rm 302",
-    items: "Moi Moi × 3",
-    amount: "₦1,200",
-    status: "ready",
-  },
-];
+const POLL_MS = 12_000;
 
 function Badge({ status }: { status: Status }) {
   const map = {
-    new: { bg: "#E9EDFA", fg: BLUE, label: "New" },
-    preparing: { bg: "#FDECE4", fg: AMOUNT, label: "Preparing" },
+    placed: { bg: "#E9EDFA", fg: BLUE, label: "New" },
+    accepted: { bg: "#FDECE4", fg: AMOUNT, label: "Preparing" },
     ready: { bg: "#E4F4E6", fg: GREEN, label: "Ready" },
-    declined: { bg: "#EEEAE4", fg: WARM_GRAY, label: "Declined" },
+    completed: { bg: "#E4F4E6", fg: GREEN, label: "Completed" },
+    cancelled: { bg: "#EEEAE4", fg: WARM_GRAY, label: "Cancelled" },
   }[status];
   return (
     <View
@@ -103,17 +70,43 @@ export default function VendorOrders() {
 
 function ProductOrders() {
   const copy = useVendorCopy();
-  const [orders, setOrders] = useState<Order[]>(INITIAL);
+  const api = useApi();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  const setStatus = (code: string, status: Status) =>
-    setOrders((prev) =>
-      prev.map((o) => (o.code === code ? { ...o, status } : o)),
-    );
+  const load = useCallback(async () => {
+    try {
+      const res = await api("/api/vendor/orders");
+      if (!res.ok) return;
+      const j = (await res.json()) as { orders: Order[] };
+      setOrders((j.orders ?? []).filter((o) => o.status !== "completed" && o.status !== "cancelled"));
+    } catch {
+      // keep showing whatever was last loaded
+    }
+  }, [api]);
 
-  const stepBack = (code: string, from: Status) => {
-    const prev = PREV_STATUS[from];
-    if (prev) setStatus(code, prev);
-  };
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+      const interval = setInterval(load, POLL_MS);
+      return () => clearInterval(interval);
+    }, [load]),
+  );
+
+  async function act(orderId: string, action: "accept" | "ready" | "complete" | "cancel") {
+    setBusyId(orderId);
+    try {
+      const res = await api(`/api/vendor/orders/${orderId}/${action}`, { method: "POST" });
+      if (res.ok) {
+        void load();
+      } else {
+        const j = (await res.json().catch(() => null)) as { error?: string } | null;
+        Alert.alert("Couldn't update order", j?.error ?? "Try again.");
+      }
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   return (
     <View className="flex-1" style={{ backgroundColor: SCREEN_BG }}>
@@ -133,146 +126,182 @@ function ProductOrders() {
             {copy.ordersTitle}
           </Text>
 
-          <View className="gap-4">
-            {orders.map((o) => (
-              <View key={o.code} style={cardStyle} className="p-5">
-                <View className="flex-row items-center justify-between">
-                  <Text
-                    className="text-[16px] font-inter-bold"
-                    style={{ color: CHARCOAL }}
-                  >
-                    {o.code}
-                  </Text>
-                  <View className="flex-row items-center gap-2">
-                    {PREV_STATUS[o.status] ? (
-                      <Pressable
-                        onPress={() => stepBack(o.code, o.status)}
-                        hitSlop={8}
-                        className="h-8 w-8 items-center justify-center rounded-full"
-                        style={{ backgroundColor: "#F4F0E9" }}
-                      >
-                        <Ionicons
-                          name="arrow-undo-outline"
-                          size={16}
-                          color={WARM_GRAY}
-                        />
-                      </Pressable>
-                    ) : null}
-                    <Badge status={o.status} />
-                  </View>
-                </View>
-
-                <Text
-                  className="mt-3 text-[16px] font-inter-bold"
-                  style={{ color: CHARCOAL }}
-                >
-                  {o.customer} · {o.location}
-                </Text>
-                <Text
-                  className="mt-1 text-[14px] font-inter-regular"
-                  style={{ color: WARM_GRAY }}
-                >
-                  {o.items}
-                </Text>
-
-                <View className="mt-4 flex-row items-center justify-between">
-                  <Text
-                    className="text-[20px] font-inter-bold"
-                    style={{ color: AMOUNT }}
-                  >
-                    {o.amount}
-                  </Text>
-
-                  {o.status === "new" ? (
-                    <View className="flex-row items-center gap-2.5">
-                      <Pressable
-                        onPress={() => setStatus(o.code, "preparing")}
-                        className="overflow-hidden rounded-full"
-                      >
-                        <LinearGradient
-                          colors={["#F0531E", "#FF6A2E"]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 0 }}
-                          style={{
-                            paddingHorizontal: 26,
-                            paddingVertical: 12,
-                          }}
-                        >
-                          <Text className="text-[15px] font-inter-bold text-white">
-                            Accept
-                          </Text>
-                        </LinearGradient>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setStatus(o.code, "declined")}
-                        className="rounded-full px-6 py-3"
-                        style={{ backgroundColor: "#FBEEE6" }}
-                      >
-                        <Text
-                          className="text-[15px] font-inter-semibold"
-                          style={{ color: CHARCOAL }}
-                        >
-                          Decline
-                        </Text>
-                      </Pressable>
-                    </View>
-                  ) : null}
-
-                  {o.status === "preparing" ? (
-                    <Pressable
-                      onPress={() => setStatus(o.code, "ready")}
-                      className="rounded-full px-6 py-3"
-                      style={{ backgroundColor: "#FDECE4" }}
-                    >
+          {orders.length === 0 ? (
+            <View className="mt-24 items-center px-8">
+              <Ionicons name="receipt-outline" size={44} color="#C9C2B8" />
+              <Text
+                className="mt-4 text-center text-[15px] font-inter-regular"
+                style={{ color: WARM_GRAY }}
+              >
+                No orders yet. They&rsquo;ll show up here as students order.
+              </Text>
+            </View>
+          ) : (
+            <View className="gap-4">
+              {orders.map((o) => {
+                const busy = busyId === o.id;
+                return (
+                  <View key={o.id} style={cardStyle} className="p-5">
+                    <View className="flex-row items-center justify-between">
                       <Text
-                        className="text-[15px] font-inter-bold"
-                        style={{ color: AMOUNT }}
+                        className="text-[16px] font-inter-bold"
+                        style={{ color: CHARCOAL }}
                       >
-                        {copy.markReady}
+                        #{o.id.slice(0, 8)}
                       </Text>
-                    </Pressable>
-                  ) : null}
-
-                  {o.status === "ready" ? (
-                    <View className="flex-row items-center gap-1.5">
-                      <Ionicons name="checkmark" size={18} color={GREEN} />
-                      <Text
-                        className="text-[15px] font-inter-bold"
-                        style={{ color: GREEN }}
-                      >
-                        {copy.awaitingLabel}
-                      </Text>
+                      <Badge status={o.status} />
                     </View>
-                  ) : null}
 
-                  {o.status === "declined" ? (
                     <Text
-                      className="text-[15px] font-inter-semibold"
+                      className="mt-3 text-[14px] font-inter-regular"
                       style={{ color: WARM_GRAY }}
                     >
-                      {copy.declinedLabel}
+                      {o.items.map((i) => `${i.productName} × ${i.quantity}`).join(", ")}
                     </Text>
-                  ) : null}
-                </View>
-              </View>
-            ))}
-          </View>
+
+                    <View className="mt-4 flex-row items-center justify-between">
+                      <Text
+                        className="text-[20px] font-inter-bold"
+                        style={{ color: AMOUNT }}
+                      >
+                        {formatNaira(o.totalMinor)}
+                      </Text>
+
+                      {busy ? (
+                        <ActivityIndicator color={AMOUNT} />
+                      ) : o.status === "placed" ? (
+                        <View className="flex-row items-center gap-2.5">
+                          <Pressable
+                            onPress={() => act(o.id, "accept")}
+                            className="overflow-hidden rounded-full"
+                          >
+                            <LinearGradient
+                              colors={["#F0531E", "#FF6A2E"]}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 0 }}
+                              style={{
+                                paddingHorizontal: 26,
+                                paddingVertical: 12,
+                              }}
+                            >
+                              <Text className="text-[15px] font-inter-bold text-white">
+                                Accept
+                              </Text>
+                            </LinearGradient>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => act(o.id, "cancel")}
+                            className="rounded-full px-6 py-3"
+                            style={{ backgroundColor: "#FBEEE6" }}
+                          >
+                            <Text
+                              className="text-[15px] font-inter-semibold"
+                              style={{ color: CHARCOAL }}
+                            >
+                              Decline
+                            </Text>
+                          </Pressable>
+                        </View>
+                      ) : o.status === "accepted" ? (
+                        <Pressable
+                          onPress={() => act(o.id, "ready")}
+                          className="rounded-full px-6 py-3"
+                          style={{ backgroundColor: "#FDECE4" }}
+                        >
+                          <Text
+                            className="text-[15px] font-inter-bold"
+                            style={{ color: AMOUNT }}
+                          >
+                            {copy.markReady}
+                          </Text>
+                        </Pressable>
+                      ) : o.status === "ready" ? (
+                        <Pressable
+                          onPress={() => act(o.id, "complete")}
+                          className="rounded-full px-6 py-3"
+                          style={{ backgroundColor: "#E4F4E6" }}
+                        >
+                          <Text
+                            className="text-[15px] font-inter-bold"
+                            style={{ color: GREEN }}
+                          >
+                            Mark completed
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </ScrollView>
       </SafeAreaView>
     </View>
   );
 }
 
+type AppointmentStatus = "booked" | "confirmed" | "completed" | "cancelled" | "no_show";
+
+type AppointmentRow = {
+  appointment: {
+    id: string;
+    status: AppointmentStatus;
+    serviceName: string;
+    totalMinor: number;
+    scheduledStart: string;
+    scheduledEnd: string;
+  };
+  studentName: string | null;
+  studentPhone: string | null;
+};
+
 function ServiceBookings() {
   const copy = useVendorCopy();
-  const { appointments, services } = useBookingStore();
+  const api = useApi();
+  const [rows, setRows] = useState<AppointmentRow[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  // Refreshed alongside `rows` (not read via `Date.now()` at render time) so
+  // the past-start/past-end action gating below stays a pure render.
+  const [now, setNow] = useState(() => Date.now());
 
-  const rows = appointments
-    .filter((a) => a.status === "booked")
-    .sort((a, b) => `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`));
+  const load = useCallback(async () => {
+    try {
+      const res = await api("/api/vendor/appointments");
+      if (!res.ok) return;
+      const j = (await res.json()) as { appointments: AppointmentRow[] };
+      const active = (j.appointments ?? [])
+        .filter((r) => r.appointment.status === "booked" || r.appointment.status === "confirmed")
+        .sort((a, b) => a.appointment.scheduledStart.localeCompare(b.appointment.scheduledStart));
+      setRows(active);
+      setNow(Date.now());
+    } catch {
+      // keep showing whatever was last loaded
+    }
+  }, [api]);
 
-  const nameOf = (id: string) =>
-    services.find((s) => s.id === id)?.name ?? "Service";
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+      const interval = setInterval(load, POLL_MS);
+      return () => clearInterval(interval);
+    }, [load]),
+  );
+
+  async function act(id: string, action: "confirm" | "complete" | "cancel" | "no-show") {
+    setBusyId(id);
+    try {
+      const res = await api(`/api/vendor/appointments/${id}/${action}`, { method: "POST" });
+      if (res.ok) {
+        void load();
+      } else {
+        const j = (await res.json().catch(() => null)) as { error?: string } | null;
+        Alert.alert("Couldn't update booking", j?.error ?? "Try again.");
+      }
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   const cancel = (id: string, who: string) =>
     Alert.alert(
@@ -283,8 +312,18 @@ function ServiceBookings() {
         {
           text: "Cancel booking",
           style: "destructive",
-          onPress: () => cancelAppointment(id),
+          onPress: () => act(id, "cancel"),
         },
+      ],
+    );
+
+  const markNoShow = (id: string, who: string) =>
+    Alert.alert(
+      "Mark as no-show?",
+      `${who} will be refunded in full.`,
+      [
+        { text: "Never mind", style: "cancel" },
+        { text: "Mark no-show", style: "destructive", onPress: () => act(id, "no-show") },
       ],
     );
 
@@ -318,63 +357,127 @@ function ServiceBookings() {
             </View>
           ) : (
             <View className="gap-4">
-              {rows.map((a) => (
-                <View key={a.id} style={cardStyle} className="p-5">
-                  <View className="flex-row items-center justify-between">
-                    <Text
-                      className="text-[16px] font-inter-bold"
-                      style={{ color: CHARCOAL }}
-                    >
-                      {a.customerName}
-                    </Text>
-                    <View
-                      className="rounded-full px-3 py-1"
-                      style={{ backgroundColor: "#E4F4E6" }}
-                    >
-                      <Text
-                        className="text-[13px] font-inter-bold"
-                        style={{ color: GREEN }}
-                      >
-                        Booked
-                      </Text>
-                    </View>
-                  </View>
+              {rows.map(({ appointment: a, studentName }) => {
+                const who = studentName ?? "Student";
+                const busy = busyId === a.id;
+                const { date, time } = watLocalFromIso(a.scheduledStart);
+                const endTime = watLocalFromIso(a.scheduledEnd).time;
+                const isPastStart = now >= new Date(a.scheduledStart).getTime();
+                const isPastEnd = now >= new Date(a.scheduledEnd).getTime();
+                const badge = a.status === "confirmed" ? "Confirmed" : "Booked";
 
-                  <Text
-                    className="mt-3 text-[16px] font-inter-bold"
-                    style={{ color: CHARCOAL }}
-                  >
-                    {nameOf(a.serviceId)}
-                  </Text>
-                  <Text
-                    className="mt-1 text-[14px] font-inter-regular"
-                    style={{ color: WARM_GRAY }}
-                  >
-                    {formatDayLong(a.date)} · {format12(a.start)} – {format12(a.end)}
-                  </Text>
-
-                  <View className="mt-4 flex-row items-center justify-between">
-                    <Text
-                      className="text-[20px] font-inter-bold"
-                      style={{ color: AMOUNT }}
-                    >
-                      {formatNaira(a.priceMinor)}
-                    </Text>
-                    <Pressable
-                      onPress={() => cancel(a.id, a.customerName)}
-                      className="rounded-full px-5 py-2.5"
-                      style={{ backgroundColor: "#FBEEE6" }}
-                    >
+                return (
+                  <View key={a.id} style={cardStyle} className="p-5">
+                    <View className="flex-row items-center justify-between">
                       <Text
-                        className="text-[14px] font-inter-semibold"
+                        className="text-[16px] font-inter-bold"
                         style={{ color: CHARCOAL }}
                       >
-                        Cancel booking
+                        {who}
                       </Text>
-                    </Pressable>
+                      <View
+                        className="rounded-full px-3 py-1"
+                        style={{ backgroundColor: "#E4F4E6" }}
+                      >
+                        <Text
+                          className="text-[13px] font-inter-bold"
+                          style={{ color: GREEN }}
+                        >
+                          {badge}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text
+                      className="mt-3 text-[16px] font-inter-bold"
+                      style={{ color: CHARCOAL }}
+                    >
+                      {a.serviceName}
+                    </Text>
+                    <Text
+                      className="mt-1 text-[14px] font-inter-regular"
+                      style={{ color: WARM_GRAY }}
+                    >
+                      {formatDayLong(date)} · {format12(time)} – {format12(endTime)}
+                    </Text>
+
+                    <View className="mt-4 flex-row items-center justify-between">
+                      <Text
+                        className="text-[20px] font-inter-bold"
+                        style={{ color: AMOUNT }}
+                      >
+                        {formatNaira(a.totalMinor)}
+                      </Text>
+
+                      {busy ? (
+                        <ActivityIndicator color={AMOUNT} />
+                      ) : (
+                        <View className="flex-row items-center gap-2.5">
+                          {!isPastStart && a.status === "booked" ? (
+                            <Pressable
+                              onPress={() => act(a.id, "confirm")}
+                              className="overflow-hidden rounded-full"
+                            >
+                              <LinearGradient
+                                colors={["#F0531E", "#FF6A2E"]}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                                style={{ paddingHorizontal: 20, paddingVertical: 10 }}
+                              >
+                                <Text className="text-[14px] font-inter-bold text-white">
+                                  Confirm
+                                </Text>
+                              </LinearGradient>
+                            </Pressable>
+                          ) : null}
+                          {!isPastStart ? (
+                            <Pressable
+                              onPress={() => cancel(a.id, who)}
+                              className="rounded-full px-5 py-2.5"
+                              style={{ backgroundColor: "#FBEEE6" }}
+                            >
+                              <Text
+                                className="text-[14px] font-inter-semibold"
+                                style={{ color: CHARCOAL }}
+                              >
+                                Cancel
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                          {isPastEnd && a.status === "confirmed" ? (
+                            <Pressable
+                              onPress={() => act(a.id, "complete")}
+                              className="rounded-full px-5 py-2.5"
+                              style={{ backgroundColor: "#E4F4E6" }}
+                            >
+                              <Text
+                                className="text-[14px] font-inter-bold"
+                                style={{ color: GREEN }}
+                              >
+                                Mark completed
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                          {isPastEnd ? (
+                            <Pressable
+                              onPress={() => markNoShow(a.id, who)}
+                              className="rounded-full px-5 py-2.5"
+                              style={{ backgroundColor: "#FBEEE6" }}
+                            >
+                              <Text
+                                className="text-[14px] font-inter-semibold"
+                                style={{ color: CHARCOAL }}
+                              >
+                                No-show
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      )}
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
           )}
         </ScrollView>

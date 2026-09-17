@@ -1,10 +1,28 @@
-import { useState } from "react";
-import { Image, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { vendors } from "@/data/vendors";
+import { useApi } from "@/lib/api";
+
+type SearchHit = {
+  id: string;
+  offeringType: "product" | "service" | "courier";
+  displayName: string;
+  description: string | null;
+  coverPhotoUrl: string | null;
+  categoryName: string | null;
+};
 
 const cardShadow = {
   shadowColor: "#1F1F1F",
@@ -103,7 +121,36 @@ function Pill({ label, onPress }: { label: string; onPress: () => void }) {
 
 export default function ExploreSearch() {
   const router = useRouter();
+  const api = useApi();
   const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchHit[] | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  const trimmed = query.trim();
+  const showResults = trimmed.length >= 2;
+
+  useEffect(() => {
+    if (trimmed.length < 2) return;
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      if (cancelled) return;
+      setSearching(true);
+      try {
+        const res = await api(`/api/vendors?q=${encodeURIComponent(trimmed)}`);
+        const j = (await res.json()) as { vendors?: SearchHit[] };
+        if (!cancelled) setResults(j.vendors ?? []);
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [api, trimmed]);
+
   const [cardHeight, setCardHeight] = useState<number | null>(null);
   const [activePage, setActivePage] = useState(0);
   const pageHeight = cardHeight
@@ -185,11 +232,82 @@ export default function ExploreSearch() {
         {/* Trending on CampUs */}
         <View className="mt-6 px-3 pb-3">
           <Text className="text-[18px] font-inter-bold text-[#1F1F1F]">
-            Trending on CampUs
+            {showResults ? "Results" : "Trending on CampUs"}
           </Text>
         </View>
       </>
 
+      {showResults ? (
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 24, gap: TREND_GAP }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {results === null || (searching && results.length === 0) ? (
+            <ActivityIndicator color="#FF6B4A" style={{ marginTop: 32 }} />
+          ) : results.length === 0 ? (
+            <Text className="mt-8 px-2 text-[14px] font-inter-regular text-[#8A8A8A]">
+              No vendors match “{trimmed}”.
+            </Text>
+          ) : (
+            results.map((hit) => (
+              <Pressable
+                key={hit.id}
+                style={cardShadow}
+                onPress={() => router.push(`/store/${hit.id}` as never)}
+                className="flex-row items-center gap-3 rounded-[18px] bg-white p-3"
+              >
+                <View
+                  style={{
+                    width: 64,
+                    height: 64,
+                    borderRadius: 14,
+                    overflow: "hidden",
+                    backgroundColor: "#F3E8DD",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {hit.coverPhotoUrl ? (
+                    <Image
+                      source={{ uri: hit.coverPhotoUrl }}
+                      style={{ width: "100%", height: "100%" }}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Ionicons
+                      name={
+                        hit.offeringType === "service"
+                          ? "sparkles-outline"
+                          : "fast-food-outline"
+                      }
+                      size={22}
+                      color="#C9A98D"
+                    />
+                  )}
+                </View>
+                <View className="flex-1 shrink">
+                  <Text
+                    numberOfLines={1}
+                    className="text-[15px] font-inter-bold text-[#1F1F1F]"
+                  >
+                    {hit.displayName}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    className="mt-0.5 text-[13px] font-inter-regular text-[#8A8A8A]"
+                  >
+                    {hit.description || hit.categoryName || "Campus vendor"}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#C9C0B4" />
+              </Pressable>
+            ))
+          )}
+        </ScrollView>
+      ) : (
+        <>
       {/* Scrollable trending list — snaps in batches of exactly 3 cards
           per scroll, capped to a viewport exactly 3 cards tall so a 4th
           card can never peek in at the bottom of any page. */}
@@ -278,6 +396,8 @@ export default function ExploreSearch() {
           ))}
         </View>
       </View>
+        </>
+      )}
       </SafeAreaView>
     </View>
   );

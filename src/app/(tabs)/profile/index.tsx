@@ -1,9 +1,10 @@
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Image, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useAuth } from "@clerk/expo";
+import { landingRoute, useSession } from "@/lib/session";
+import { useSignOut } from "@/lib/useSignOut";
 
 const cardShadow = {
   shadowColor: "#1F1F1F",
@@ -31,7 +32,8 @@ type MenuItem = {
 
 export default function Profile() {
   const router = useRouter();
-  const { signOut } = useAuth();
+  const signOut = useSignOut();
+  const { me, switchRole } = useSession();
 
   const accountMenu: MenuItem[] = [
     { key: "favorites", label: "Favorites", icon: "heart-outline", onPress: () => router.push("/profile/favorites") },
@@ -47,17 +49,43 @@ export default function Profile() {
     { key: "settings", label: "Settings", icon: "settings-outline", onPress: () => router.push("/profile/settings") },
   ];
 
-  async function handleLogout() {
-    try {
-      await signOut();
-      // Give Clerk's reactive isSignedIn state a tick to propagate before
-      // the sign-in screen re-checks it, otherwise its redirect can read a
-      // stale "still signed in" value and bounce straight back to the tabs.
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      router.replace("/sign-in");
-    } catch (err) {
-      console.error("Sign out error", err);
-    }
+  const moreMenu: MenuItem[] = me?.isVendorApproved
+    ? [
+        {
+          key: "switch-vendor",
+          label: "Switch to vendor mode",
+          icon: "swap-horizontal-outline",
+          onPress: async () => {
+            const result = await switchRole("vendor");
+            if (!result.ok) {
+              Alert.alert("Couldn't switch", result.error);
+              return;
+            }
+            router.replace(landingRoute(result.me, undefined));
+          },
+        },
+      ]
+    : [];
+
+  // No vendor record at all (never applied) — the only in-app entry point
+  // into the vendor application, since login-time role picking is enforced
+  // against the account's existing state and won't start a new one.
+  const becomeVendorMenu: MenuItem[] = me && !me.vendor
+    ? [
+        {
+          key: "become-vendor",
+          label: "Become a Vendor",
+          icon: "storefront-outline",
+          onPress: () => router.push("/vendor-application/offering-type"),
+        },
+      ]
+    : [];
+
+  function handleLogout() {
+    Alert.alert("Log out?", "You'll need to sign in again to see your orders.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Log out", style: "destructive", onPress: () => void signOut() },
+    ]);
   }
 
   return (
@@ -96,9 +124,17 @@ export default function Profile() {
               onPress={() => router.push("/profile/edit-profile")}
             >
               <View className="relative">
-                <View className="h-20 w-20 items-center justify-center rounded-full bg-[#E4D8CC]">
-                  <Ionicons name="person" size={40} color="#B8AC9C" />
-                </View>
+                {me?.profile?.image ? (
+                  <Image
+                    source={{ uri: me.profile.image }}
+                    style={{ width: 80, height: 80, borderRadius: 40 }}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View className="h-20 w-20 items-center justify-center rounded-full bg-[#E4D8CC]">
+                    <Ionicons name="person" size={40} color="#B8AC9C" />
+                  </View>
+                )}
                 <View className="absolute -bottom-1 -right-1 h-7 w-7 items-center justify-center rounded-full border-2 border-[#FBEFE7] bg-[#FF5A1F]">
                   <Ionicons name="camera" size={13} color="#FFFFFF" />
                 </View>
@@ -228,6 +264,48 @@ export default function Profile() {
               </Pressable>
             ))}
           </View>
+
+          {/* More (only shown for approved vendors) */}
+          {moreMenu.length > 0 && (
+            <View style={cardShadow} className="mx-3 mt-4 rounded-[18px] bg-white p-1">
+              {moreMenu.map((item, index) => (
+                <Pressable
+                  key={item.key}
+                  onPress={item.onPress}
+                  className={`flex-row items-center gap-3 px-3 py-4 ${
+                    index > 0 ? "border-t border-[#F0EAE3]" : ""
+                  }`}
+                >
+                  <Ionicons name={item.icon} size={20} color="#FF5A1F" />
+                  <Text className="flex-1 shrink text-[16px] font-inter-semibold text-[#1F1F1F]">
+                    {item.label}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={16} color="#B8AC9C" />
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          {/* Become a Vendor (only shown when there's no vendor record at all) */}
+          {becomeVendorMenu.length > 0 && (
+            <View style={cardShadow} className="mx-3 mt-4 rounded-[18px] bg-white p-1">
+              {becomeVendorMenu.map((item, index) => (
+                <Pressable
+                  key={item.key}
+                  onPress={item.onPress}
+                  className={`flex-row items-center gap-3 px-3 py-4 ${
+                    index > 0 ? "border-t border-[#F0EAE3]" : ""
+                  }`}
+                >
+                  <Ionicons name={item.icon} size={20} color="#FF5A1F" />
+                  <Text className="flex-1 shrink text-[16px] font-inter-semibold text-[#1F1F1F]">
+                    {item.label}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={16} color="#B8AC9C" />
+                </Pressable>
+              ))}
+            </View>
+          )}
 
           {/* Log out */}
           <View style={cardShadow} className="mx-3 mt-4 rounded-[18px] bg-white p-1">

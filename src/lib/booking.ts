@@ -89,6 +89,22 @@ export const addDays = (d: Date, n: number) => {
 
 export const weekdayOf = (s: DateStr) => parseYmd(s).getDay() as Weekday;
 
+/**
+ * Split a UTC instant into its West Africa Time (UTC+1, no DST — a fixed
+ * offset, safe without `Intl`) local `{date, time}`. Client-safe mirror of
+ * the server-only `toWatDateTime` in `src/lib/serviceAvailability.ts`, used
+ * to display `appointments.scheduledStart/End` (stored as `timestamptz`,
+ * serialized as ISO UTC strings over the API) in the same convention the
+ * booking logic assumes throughout.
+ */
+export function watLocalFromIso(iso: string): { date: DateStr; time: TimeStr } {
+  const wat = new Date(new Date(iso).getTime() + 60 * 60_000);
+  return {
+    date: `${wat.getUTCFullYear()}-${pad2(wat.getUTCMonth() + 1)}-${pad2(wat.getUTCDate())}`,
+    time: `${pad2(wat.getUTCHours())}:${pad2(wat.getUTCMinutes())}`,
+  };
+}
+
 const WD_LONG = [
   "Sunday",
   "Monday",

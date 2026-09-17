@@ -1,10 +1,39 @@
+import { useEffect } from "react";
+import { View } from "react-native";
+import { Redirect } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
-import { useVendorCopy, useVendorMode } from "@/lib/vendorMode";
+import { useSession } from "@/lib/session";
+import { setVendorMode, useVendorCopy, useVendorMode } from "@/lib/vendorMode";
 
 const INACTIVE = "#8A8A8A";
 const ACTIVE = "#F0531E";
 
 export default function VendorTabsLayout() {
+  const { loading, me } = useSession();
+  const vendor = me?.vendor ?? null;
+
+  // Keep the shared product/service copy in sync with the real offering type.
+  useEffect(() => {
+    if (vendor?.offeringType === "service") setVendorMode("service");
+    else if (vendor?.offeringType === "product") setVendorMode("product");
+  }, [vendor?.offeringType]);
+
+  if (loading) return <View style={{ flex: 1, backgroundColor: "#FBF7F2" }} />;
+
+  // Not an approved vendor → send them where they belong.
+  if (!vendor) return <Redirect href="/(tabs)" />;
+  if (vendor.offeringType === "courier") {
+    return <Redirect href="/courier/dashboard" />;
+  }
+  if (vendor.status !== "approved") {
+    return <Redirect href="/vendor-application/pending" />;
+  }
+  if (me?.activeRole !== "vendor") return <Redirect href="/(tabs)" />;
+
+  return <VendorTabs />;
+}
+
+function VendorTabs() {
   const copy = useVendorCopy();
   const isService = useVendorMode() === "service";
 

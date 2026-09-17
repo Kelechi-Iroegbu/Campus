@@ -1,18 +1,13 @@
-import { useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useApi } from "@/lib/api";
 import { MonthCalendar, type DayMark } from "@/components/booking/MonthCalendar";
 import { SlotGrid } from "@/components/booking/SlotGrid";
-import {
-  addAppointment,
-  PROVIDER,
-  STUDENT_NAME,
-  useBookingStore,
-} from "@/data/serviceBooking";
 import {
   addDays,
   BOOKING_HORIZON_DAYS,
@@ -20,14 +15,11 @@ import {
   formatDayLong,
   formatDayShort,
   formatNaira,
-  fromMin,
-  hasOpenSlots,
-  pad2,
-  slotsForDate,
   toMin,
   ymd,
-  type Appointment,
+  type Slot,
 } from "@/lib/booking";
+import { PLATFORM_FEE_MINOR } from "@/lib/constants";
 
 const INK = "#14142B";
 const SUBTLE = "#8A8A8A";
@@ -47,11 +39,29 @@ const cardStyle = {
   elevation: 2,
 };
 
+type ServiceDetail = {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  priceMinor: number;
+  isActive: boolean;
+};
+
+type Done = { date: string; start: string; end: string; totalMinor: number };
+
+function monthKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export default function BookService() {
   const router = useRouter();
+  const api = useApi();
   const { serviceId } = useLocalSearchParams<{ serviceId: string }>();
-  const { weekly, overrides, appointments, services } = useBookingStore();
-  const service = services.find((s) => s.id === serviceId);
+
+  const [service, setService] = useState<ServiceDetail | null>(null);
+  const [vendorName, setVendorName] = useState("");
+  const [vendorStatus, setVendorStatus] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const today = useMemo(() => new Date(), []);
   const minYmd = ymd(today);
@@ -60,34 +70,96 @@ export default function BookService() {
   const [monthDate, setMonthDate] = useState(
     () => new Date(today.getFullYear(), today.getMonth(), 1),
   );
+  const [openDates, setOpenDates] = useState<Set<string>>(new Set());
+
   const [selDate, setSelDate] = useState<string | null>(null);
   const [selTime, setSelTime] = useState<string | null>(null);
   const [period, setPeriod] = useState<"am" | "pm">("am");
-  const [done, setDone] = useState<Appointment | null>(null);
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+
+  const [booking, setBooking] = useState(false);
+  const [done, setDone] = useState<Done | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api(`/api/services/${serviceId}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          setService(null);
+          return;
+        }
+        const j = (await res.json()) as {
+          service: ServiceDetail;
+          vendorName: string;
+          vendorStatus: string;
+        };
+        setService(j.service);
+        setVendorName(j.vendorName);
+        setVendorStatus(j.vendorStatus);
+      } catch {
+        if (!cancelled) setService(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, serviceId]);
+
+  useEffect(() => {
+    if (!service) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api(`/api/services/${serviceId}/month-availability?month=${monthKey(monthDate)}`);
+        if (cancelled || !res.ok) return;
+        const j = (await res.json()) as { openDates: string[] };
+        setOpenDates(new Set(j.openDates ?? []));
+      } catch {
+        if (!cancelled) setOpenDates(new Set());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, serviceId, service, monthDate]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!service || !selDate) {
+        setSlots([]);
+        return;
+      }
+      setSlotsLoading(true);
+      try {
+        const res = await api(`/api/services/${serviceId}/slots?date=${selDate}`);
+        if (cancelled || !res.ok) return;
+        const j = (await res.json()) as { slots: Slot[] };
+        setSlots(j.slots ?? []);
+      } catch {
+        if (!cancelled) setSlots([]);
+      } finally {
+        if (!cancelled) setSlotsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, serviceId, service, selDate]);
 
   const marks = useMemo(() => {
-    if (!service) return {};
     const m: Record<string, DayMark> = {};
-    const y = monthDate.getFullYear();
-    const mo = monthDate.getMonth();
-    const dim = new Date(y, mo + 1, 0).getDate();
-    for (let d = 1; d <= dim; d++) {
-      const ds = `${y}-${pad2(mo + 1)}-${pad2(d)}`;
-      if (ds < minYmd || ds > maxYmd) continue;
-      if (hasOpenSlots({ date: ds, service, weekly, overrides, appointments })) {
-        m[ds] = { dot: true };
-      }
-    }
+    openDates.forEach((ds) => {
+      if (ds < minYmd || ds > maxYmd) return;
+      m[ds] = { dot: true };
+    });
     return m;
-  }, [service, monthDate, weekly, overrides, appointments, minYmd, maxYmd]);
-
-  const slots = useMemo(
-    () =>
-      service && selDate
-        ? slotsForDate({ date: selDate, service, weekly, overrides, appointments })
-        : [],
-    [service, selDate, weekly, overrides, appointments],
-  );
+  }, [openDates, minYmd, maxYmd]);
 
   const shown = slots.filter((s) =>
     period === "am" ? toMin(s.time) < 720 : toMin(s.time) >= 720,
@@ -95,7 +167,25 @@ export default function BookService() {
   const amCount = slots.filter((s) => toMin(s.time) < 720).length;
   const pmCount = slots.length - amCount;
 
-  if (!service || !service.active) {
+  const refreshSlots = useCallback(async () => {
+    if (!selDate) return;
+    const res = await api(`/api/services/${serviceId}/slots?date=${selDate}`);
+    if (res.ok) {
+      const j = (await res.json()) as { slots: Slot[] };
+      setSlots(j.slots ?? []);
+    }
+  }, [api, serviceId, selDate]);
+
+  if (loading) {
+    return (
+      <View className="flex-1 items-center justify-center" style={{ backgroundColor: SCREEN_BG }}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <ActivityIndicator color={PINK} />
+      </View>
+    );
+  }
+
+  if (!service || !service.isActive || vendorStatus !== "approved") {
     return (
       <View className="flex-1" style={{ backgroundColor: SCREEN_BG }}>
         <Stack.Screen options={{ headerShown: false }} />
@@ -136,14 +226,14 @@ export default function BookService() {
               className="mt-2 text-center text-[14px] font-inter-regular"
               style={{ color: SUBTLE }}
             >
-              {PROVIDER.name}
+              {vendorName}
             </Text>
 
             <View style={cardStyle} className="mt-6 w-full p-5">
               <Row label="Service" value={service.name} />
               <Row label="When" value={formatDayLong(done.date)} />
               <Row label="Time" value={`${format12(done.start)} – ${format12(done.end)}`} />
-              <Row label="Paid" value={`${formatNaira(done.priceMinor)} · from wallet`} last />
+              <Row label="Paid" value={`${formatNaira(done.totalMinor)} · from wallet`} last />
             </View>
 
             <Text
@@ -166,20 +256,36 @@ export default function BookService() {
     );
   }
 
-  const canConfirm = !!selDate && !!selTime;
+  const canConfirm = !!selDate && !!selTime && !booking;
+  const totalMinor = service.priceMinor + PLATFORM_FEE_MINOR;
 
-  const confirm = () => {
-    if (!selDate || !selTime) return;
-    const appt = addAppointment({
-      providerId: service.providerId,
-      serviceId: service.id,
-      customerName: STUDENT_NAME,
-      date: selDate,
-      start: selTime,
-      end: fromMin(toMin(selTime) + service.durationMin),
-      priceMinor: service.priceMinor,
-    });
-    setDone(appt);
+  const confirm = async () => {
+    if (!selDate || !selTime || !service) return;
+    setBooking(true);
+    try {
+      const res = await api("/api/appointments", {
+        method: "POST",
+        body: JSON.stringify({ serviceId: service.id, date: selDate, start: selTime }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as { error?: string } | null;
+        Alert.alert("Couldn't book", j?.error ?? "Something went wrong.");
+        if (res.status === 409) {
+          setSelTime(null);
+          void refreshSlots();
+        }
+        return;
+      }
+      const j = (await res.json()) as { appointment: { totalMinor: number } };
+      setDone({
+        date: selDate,
+        start: selTime,
+        end: format24(toMin(selTime) + service.durationMinutes),
+        totalMinor: j.appointment.totalMinor,
+      });
+    } finally {
+      setBooking(false);
+    }
   };
 
   return (
@@ -187,7 +293,7 @@ export default function BookService() {
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar style="dark" />
 
-      <SafeAreaView className="flex-1" edges={["top"]}>
+      <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
         {/* header */}
         <View className="flex-row items-center gap-3 px-4 pb-2 pt-2">
           <Pressable onPress={() => router.back()} hitSlop={10}>
@@ -213,13 +319,13 @@ export default function BookService() {
             </View>
             <View className="flex-1">
               <Text className="text-[15px] font-inter-bold" style={{ color: INK }}>
-                {PROVIDER.name}
+                {vendorName}
               </Text>
               <Text
                 className="mt-0.5 text-[12.5px] font-inter-regular"
                 style={{ color: SUBTLE }}
               >
-                {service.name} · {service.durationMin} min ·{" "}
+                {service.name} · {service.durationMinutes} min ·{" "}
                 {formatNaira(service.priceMinor)}
               </Text>
             </View>
@@ -299,23 +405,34 @@ export default function BookService() {
               </View>
 
               <View className="mt-4">
-                <SlotGrid
-                  slots={shown}
-                  selected={selTime}
-                  onSelect={setSelTime}
-                  emptyText={
-                    period === "am"
-                      ? "No morning times on this day."
-                      : "No afternoon times on this day."
-                  }
-                />
+                {slotsLoading ? (
+                  <ActivityIndicator color={PINK} style={{ marginTop: 20 }} />
+                ) : (
+                  <SlotGrid
+                    slots={shown}
+                    selected={selTime}
+                    onSelect={setSelTime}
+                    emptyText={
+                      period === "am"
+                        ? "No morning times on this day."
+                        : "No afternoon times on this day."
+                    }
+                  />
+                )}
               </View>
 
               <Text
                 className="mt-4 text-[11px] font-inter-regular"
                 style={{ color: SUBTLE }}
               >
-                Each booking holds {service.durationMin} min + a 2-minute buffer.
+                Each booking holds {service.durationMinutes} min + a 2-minute buffer.
+              </Text>
+              <Text
+                className="mt-1 text-[11px] font-inter-regular"
+                style={{ color: SUBTLE }}
+              >
+                {formatNaira(service.priceMinor)} service + {formatNaira(PLATFORM_FEE_MINOR)}{" "}
+                platform fee
               </Text>
             </>
           ) : (
@@ -371,9 +488,11 @@ export default function BookService() {
               style={{ paddingHorizontal: 22, paddingVertical: 14 }}
             >
               <Text className="text-[15px] font-inter-bold text-white">
-                {canConfirm
-                  ? `Confirm · ${formatNaira(service.priceMinor)}`
-                  : "Confirm"}
+                {booking
+                  ? "Booking…"
+                  : canConfirm
+                    ? `Confirm · ${formatNaira(totalMinor)}`
+                    : "Confirm"}
               </Text>
             </LinearGradient>
           </Pressable>
@@ -381,6 +500,12 @@ export default function BookService() {
       </SafeAreaView>
     </View>
   );
+}
+
+function format24(totalMin: number): string {
+  const h = Math.floor(totalMin / 60) % 24;
+  const m = totalMin % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
 function Row({

@@ -1,11 +1,22 @@
-import { useState } from "react";
-import { Alert, Image, Pressable, ScrollView, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import type { ComponentProps, ReactNode } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useRouter } from "expo-router";
-import { useAuth } from "@clerk/expo";
+import { useApi } from "@/lib/api";
+import { useSession } from "@/lib/session";
+import { useImageUpload } from "@/lib/useImageUpload";
+import { useSignOut } from "@/lib/useSignOut";
 import {
   setVendorMode,
   useVendorCopy,
@@ -237,27 +248,71 @@ function DevModeSwitch({ mode }: { mode: VendorMode }) {
 
 export default function VendorProfile() {
   const router = useRouter();
-  const { signOut } = useAuth();
+  const signOut = useSignOut();
+  const api = useApi();
+  const { me, refetch, switchRole } = useSession();
   const copy = useVendorCopy();
   const mode = useVendorMode();
+  const { pickAndUpload, uploading, error: uploadError } = useImageUpload();
   const [storeOpen, setStoreOpen] = useState(true);
+  const [togglingStore, setTogglingStore] = useState(false);
+
+  useEffect(() => {
+    if (me?.vendor) setStoreOpen(me.vendor.isOpen);
+  }, [me?.vendor]);
+
+  const isProductVendor = me?.vendor?.offeringType === "product";
+  const displayPhoto = isProductVendor
+    ? me?.vendor?.shopIconUrl
+    : me?.vendor?.coverPhotoUrl;
+
+  const onEditPhoto = async () => {
+    if (!isProductVendor) {
+      router.push("/vendor-application/cover-photo" as never);
+      return;
+    }
+    const url = await pickAndUpload({ aspect: [1, 1] });
+    if (!url) {
+      if (uploadError) Alert.alert("Couldn't upload photo", uploadError);
+      return;
+    }
+    try {
+      const res = await api("/api/vendor/logo", {
+        method: "PATCH",
+        body: JSON.stringify({ shopIconUrl: url }),
+      });
+      if (!res.ok) throw new Error(`logo ${res.status}`);
+      await refetch();
+    } catch (err) {
+      Alert.alert("Couldn't update photo", "Please try again.");
+      console.error("Failed to update shop logo", err);
+    }
+  };
+
+  async function toggleStoreOpen() {
+    if (togglingStore) return;
+    const next = !storeOpen;
+    setStoreOpen(next); // optimistic
+    setTogglingStore(true);
+    try {
+      const res = await api("/api/vendor/store-status", {
+        method: "PATCH",
+        body: JSON.stringify({ isOpen: next }),
+      });
+      if (!res.ok) throw new Error(`store-status ${res.status}`);
+      await refetch();
+    } catch (err) {
+      setStoreOpen(!next); // revert on failure
+      console.error("Failed to update store status", err);
+    } finally {
+      setTogglingStore(false);
+    }
+  }
 
   const logout = () => {
     Alert.alert("Log out?", "You'll need to sign in again to manage your store.", [
       { text: "Cancel", style: "cancel" },
-      {
-        text: "Log out",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await signOut();
-            await new Promise((r) => setTimeout(r, 50));
-            router.replace("/sign-in");
-          } catch (err) {
-            console.error("Sign out error", err);
-          }
-        },
-      },
+      { text: "Log out", style: "destructive", onPress: () => void signOut() },
     ]);
   };
 
@@ -298,11 +353,27 @@ export default function VendorProfile() {
           {/* Identity card */}
           <View className="mt-5 rounded-2xl p-4" style={cardStyle}>
             <View className="flex-row items-center gap-4">
-              <Image
-                source={require("@/assets/images/vendor/food-efo-riro.png")}
-                style={{ width: 64, height: 64, borderRadius: 18 }}
-                resizeMode="cover"
-              />
+              <Pressable onPress={onEditPhoto} disabled={uploading} className="relative">
+                <Image
+                  source={
+                    displayPhoto
+                      ? { uri: displayPhoto }
+                      : require("@/assets/images/vendor/food-efo-riro.png")
+                  }
+                  style={{ width: 64, height: 64, borderRadius: 18 }}
+                  resizeMode="cover"
+                />
+                <View
+                  className="absolute -bottom-1 -right-1 h-6 w-6 items-center justify-center rounded-full border-2 border-white"
+                  style={{ backgroundColor: ORANGE }}
+                >
+                  {uploading ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Ionicons name="camera" size={12} color="#FFFFFF" />
+                  )}
+                </View>
+              </Pressable>
               <View className="flex-1">
                 <Text
                   className="font-inter-bold"
@@ -340,16 +411,21 @@ export default function VendorProfile() {
             </View>
 
             <Pressable
-              
+              onPress={onEditPhoto}
+              disabled={uploading}
               className="mt-4 flex-row items-center justify-center gap-2 rounded-full py-3"
-              style={{ backgroundColor: "#FBEDE4" }}
+              style={{ backgroundColor: "#FBEDE4", opacity: uploading ? 0.6 : 1 }}
             >
               <Ionicons name="create-outline" size={17} color={ORANGE} />
               <Text
                 className="text-[14px] font-inter-bold"
                 style={{ color: ORANGE }}
               >
-                Edit business profile
+                {uploading
+                  ? "Uploading…"
+                  : isProductVendor
+                    ? "Change shop photo"
+                    : "Change cover photo"}
               </Text>
             </Pressable>
           </View>
@@ -375,10 +451,7 @@ export default function VendorProfile() {
                   : "Customers can't order right now"}
               </Text>
             </View>
-            <StoreToggle
-              open={storeOpen}
-              onToggle={() => setStoreOpen((v) => !v)}
-            />
+            <StoreToggle open={storeOpen} onToggle={toggleStoreOpen} />
           </View>
 
           {/* Stats */}
@@ -491,7 +564,14 @@ export default function VendorProfile() {
               first
               icon="swap-horizontal-outline"
               label="Switch to student mode"
-              onPress={() => router.replace("/(tabs)")}
+              onPress={async () => {
+                const result = await switchRole("student");
+                if (!result.ok) {
+                  Alert.alert("Couldn't switch", result.error);
+                  return;
+                }
+                router.replace("/(tabs)");
+              }}
             />
             <Row
               icon="help-circle-outline"

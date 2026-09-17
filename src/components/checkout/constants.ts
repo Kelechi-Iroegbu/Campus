@@ -1,6 +1,3 @@
-export const DELIVERY_FEE = 300;
-export const SERVICE_FEE = 200;
-
 export const CARD_GAP = 10;
 export const MIN_CARD_HEIGHT = 76;
 export const MAX_CARD_HEIGHT = 190;

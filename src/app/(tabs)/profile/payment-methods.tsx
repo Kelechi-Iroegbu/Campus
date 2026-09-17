@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useCallback, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useApi } from "@/lib/api";
 
 const cardShadow = {
   shadowColor: "#1F1F1F",
@@ -13,23 +14,18 @@ const cardShadow = {
   elevation: 2,
 };
 
-type Brand = "visa" | "mastercard" | "verve" | "apple-pay" | "card";
-
-type PaymentCard = {
-  key: string;
-  brand: Brand;
-  label: string;
-  subtitle: string;
+type PaymentMethod = {
+  id: string;
+  cardType: string | null;
+  last4: string | null;
+  expMonth: string | null;
+  expYear: string | null;
+  bank: string | null;
+  isDefault: boolean;
 };
 
-const initialCards: PaymentCard[] = [
-  { key: "visa-4242", brand: "visa", label: "Visa ending in 4242", subtitle: "Expires 08/26" },
-  { key: "mc-8888", brand: "mastercard", label: "Mastercard ending in 8888", subtitle: "Expires 11/25" },
-  { key: "verve-1234", brand: "verve", label: "Verve ending in 1234", subtitle: "Expires 07/24" },
-  { key: "apple-pay", brand: "apple-pay", label: "Apple Pay", subtitle: "tobi.adeyemi@campus.edu.ng" },
-];
-
-function BrandMark({ brand }: { brand: Brand }) {
+function BrandMark({ cardType }: { cardType: string | null }) {
+  const brand = (cardType ?? "").toLowerCase();
   if (brand === "visa") {
     return (
       <View className="h-11 w-14 items-center justify-center rounded-lg border border-[#EAE0D6] bg-white">
@@ -65,14 +61,6 @@ function BrandMark({ brand }: { brand: Brand }) {
       </View>
     );
   }
-  if (brand === "apple-pay") {
-    return (
-      <View className="h-11 w-14 flex-row items-center justify-center gap-[2px] rounded-lg border border-[#EAE0D6] bg-white">
-        <Ionicons name="logo-apple" size={16} color="#1F1F1F" />
-        <Text className="text-[13px] font-inter-bold text-[#1F1F1F]">Pay</Text>
-      </View>
-    );
-  }
   return (
     <View className="h-11 w-14 items-center justify-center rounded-lg border border-[#EAE0D6] bg-white">
       <Ionicons name="card-outline" size={20} color="#1F1F1F" />
@@ -82,37 +70,61 @@ function BrandMark({ brand }: { brand: Brand }) {
 
 export default function PaymentMethods() {
   const router = useRouter();
-  const [cards, setCards] = useState(initialCards);
-  const [defaultKey, setDefaultKey] = useState("visa-4242");
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [name, setName] = useState("");
-  const [number, setNumber] = useState("");
-  const [expiry, setExpiry] = useState("");
+  const api = useApi();
+  const [cards, setCards] = useState<PaymentMethod[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  function resetForm() {
-    setName("");
-    setNumber("");
-    setExpiry("");
+  const load = useCallback(async () => {
+    try {
+      const res = await api("/api/payment-methods");
+      if (!res.ok) throw new Error(`payment-methods ${res.status}`);
+      const j = (await res.json()) as { paymentMethods: PaymentMethod[] };
+      setCards(j.paymentMethods ?? []);
+    } catch {
+      setCards([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
+  async function setDefault(id: string) {
+    if (busyId) return;
+    const prev = cards;
+    setBusyId(id);
+    setCards((cs) => cs.map((c) => ({ ...c, isDefault: c.id === id })));
+    try {
+      const res = await api(`/api/payment-methods/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isDefault: true }),
+      });
+      if (!res.ok) throw new Error(`patch ${res.status}`);
+    } catch {
+      setCards(prev);
+    } finally {
+      setBusyId(null);
+    }
   }
 
-  function handleAddCard() {
-    const digits = number.replace(/\D/g, "");
-    if (digits.length < 4 || !expiry.trim()) return;
-
-    const last4 = digits.slice(-4);
-    const key = `card-${Date.now()}`;
-    setCards((prev) => [
-      ...prev,
-      {
-        key,
-        brand: "card",
-        label: `Card ending in ${last4}`,
-        subtitle: `Expires ${expiry.trim()}`,
-      },
-    ]);
-    setDefaultKey(key);
-    resetForm();
-    setShowAddModal(false);
+  async function removeCard(id: string) {
+    if (busyId) return;
+    const prev = cards;
+    setBusyId(id);
+    setCards((cs) => cs.filter((c) => c.id !== id));
+    try {
+      const res = await api(`/api/payment-methods/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`delete ${res.status}`);
+    } catch {
+      setCards(prev);
+    } finally {
+      setBusyId(null);
+    }
   }
 
   return (
@@ -133,48 +145,77 @@ export default function PaymentMethods() {
             </Pressable>
             <Text className="text-[20px] font-inter-bold text-[#1F1F1F]">Payment Methods</Text>
           </View>
-          <Pressable hitSlop={8} onPress={() => setShowAddModal(true)}>
-            <Text className="text-[14px] font-inter-bold text-[#FF5A1F]">Add New</Text>
-          </Pressable>
         </View>
 
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 32 }}
         >
-          <View style={cardShadow} className="mx-3 mt-5 rounded-[18px] bg-white p-1">
-            {cards.map((card, index) => {
-              const isDefault = card.key === defaultKey;
-              return (
+          {loading ? (
+            <ActivityIndicator color="#FF5A1F" style={{ marginTop: 48 }} />
+          ) : cards.length === 0 ? (
+            <View className="items-center px-8 pt-16">
+              <Ionicons name="card-outline" size={40} color="#D8CDBF" />
+              <Text className="mt-3 text-center text-[14px] font-inter-regular text-[#8A8A8A]">
+                No saved cards yet. Top up your wallet to save a card for next time.
+              </Text>
+            </View>
+          ) : (
+            <View style={cardShadow} className="mx-3 mt-5 rounded-[18px] bg-white p-1">
+              {cards.map((card, index) => (
                 <Pressable
-                  key={card.key}
-                  onPress={() => setDefaultKey(card.key)}
+                  key={card.id}
+                  onPress={() => setDefault(card.id)}
+                  disabled={busyId === card.id}
                   className={`flex-row items-center gap-3 px-3 py-4 ${
                     index > 0 ? "border-t border-[#F0EAE3]" : ""
                   }`}
                 >
-                  <BrandMark brand={card.brand} />
+                  <BrandMark cardType={card.cardType} />
                   <View className="flex-1 shrink">
                     <Text className="text-[15px] font-inter-bold text-[#1F1F1F]">
-                      {card.label}
+                      {card.cardType
+                        ? `${card.cardType[0].toUpperCase()}${card.cardType.slice(1)} ending in ${card.last4 ?? "····"}`
+                        : `Card ending in ${card.last4 ?? "····"}`}
                     </Text>
                     <Text className="mt-[2px] text-[13px] font-inter-regular text-[#8A8A8A]">
-                      {card.subtitle}
+                      {card.expMonth && card.expYear
+                        ? `Expires ${card.expMonth}/${card.expYear}`
+                        : card.bank ?? ""}
                     </Text>
                   </View>
-                  {isDefault && (
+                  {card.isDefault && (
                     <View className="rounded-full bg-[#DFF3E5] px-3 py-1">
                       <Text className="text-[12px] font-inter-bold text-[#2E9E4F]">Default</Text>
                     </View>
                   )}
-                  <Ionicons name="chevron-forward" size={16} color="#B8AC9C" />
+                  <Pressable hitSlop={8} onPress={() => removeCard(card.id)}>
+                    <Ionicons name="trash-outline" size={18} color="#B8AC9C" />
+                  </Pressable>
                 </Pressable>
-              );
-            })}
-          </View>
+              ))}
+            </View>
+          )}
+
+          <Pressable
+            style={cardShadow}
+            className="mx-3 mt-5 flex-row items-center gap-3 rounded-2xl bg-white p-4"
+            onPress={() => router.push("/wallet/topup")}
+          >
+            <View className="h-11 w-11 items-center justify-center rounded-[12px] bg-[#FDE9D5]">
+              <Ionicons name="add" size={22} color="#FF5A1F" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-[15px] font-inter-bold text-[#1F1F1F]">Add a new card</Text>
+              <Text className="mt-[2px] text-[13px] font-inter-regular text-[#8A8A8A]">
+                Cards are saved automatically the next time you top up.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#B8AC9C" />
+          </Pressable>
 
           {/* Security note */}
-          <View className="mx-3 mt-5 flex-row items-center gap-3 rounded-2xl bg-[#FBEFE7] p-4">
+          <View className="mx-3 mt-3 flex-row items-center gap-3 rounded-2xl bg-[#FBEFE7] p-4">
             <Ionicons name="lock-closed-outline" size={20} color="#5C4A3D" />
             <Text className="flex-1 shrink text-[13px] font-inter-regular text-[#5C4A3D]">
               Your payment information is secure and encrypted.
@@ -182,67 +223,6 @@ export default function PaymentMethods() {
           </View>
         </ScrollView>
       </SafeAreaView>
-
-      {/* Add card modal */}
-      <Modal visible={showAddModal} transparent animationType="slide">
-        <View className="flex-1 justify-end bg-black/40">
-          <View className="rounded-t-[24px] bg-[#FBF3EC] p-5">
-            <View className="flex-row items-center justify-between">
-              <Text className="text-[19px] font-inter-bold text-[#1F1F1F]">Add Card</Text>
-              <Pressable
-                hitSlop={8}
-                onPress={() => {
-                  resetForm();
-                  setShowAddModal(false);
-                }}
-              >
-                <Ionicons name="close" size={22} color="#1F1F1F" />
-              </Pressable>
-            </View>
-
-            <Text className="mt-4 text-[13px] font-inter-semibold text-[#8A7A6E]">
-              Cardholder Name
-            </Text>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="Tobi Adeyemi"
-              placeholderTextColor="#B8AC9C"
-              className="mt-2 rounded-2xl border border-[#EAE0D6] bg-white px-4 py-3 text-[15px] font-inter-medium text-[#1F1F1F]"
-            />
-
-            <Text className="mt-4 text-[13px] font-inter-semibold text-[#8A7A6E]">
-              Card Number
-            </Text>
-            <TextInput
-              value={number}
-              onChangeText={setNumber}
-              placeholder="0000 0000 0000 0000"
-              placeholderTextColor="#B8AC9C"
-              keyboardType="number-pad"
-              className="mt-2 rounded-2xl border border-[#EAE0D6] bg-white px-4 py-3 text-[15px] font-inter-medium text-[#1F1F1F]"
-            />
-
-            <Text className="mt-4 text-[13px] font-inter-semibold text-[#8A7A6E]">
-              Expiry (MM/YY)
-            </Text>
-            <TextInput
-              value={expiry}
-              onChangeText={setExpiry}
-              placeholder="08/26"
-              placeholderTextColor="#B8AC9C"
-              className="mt-2 rounded-2xl border border-[#EAE0D6] bg-white px-4 py-3 text-[15px] font-inter-medium text-[#1F1F1F]"
-            />
-
-            <Pressable
-              className="mt-6 items-center rounded-2xl bg-[#FF5A1F] py-4"
-              onPress={handleAddCard}
-            >
-              <Text className="text-[16px] font-inter-bold text-white">Add Card</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }

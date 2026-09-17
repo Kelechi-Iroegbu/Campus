@@ -1,3 +1,5 @@
+import { File } from "expo-file-system";
+
 const URL_ENDPOINT = process.env.EXPO_PUBLIC_IMAGEKIT_URL_ENDPOINT!;
 const PUBLIC_KEY = process.env.EXPO_PUBLIC_IMAGEKIT_PUBLIC_KEY!;
 
@@ -23,12 +25,14 @@ export async function uploadImage(file: {
   const authRes = await fetch("/api/imagekit-auth");
   const { token, expire, signature } = await authRes.json();
 
+  // Expo SDK 57's fetch only accepts Blob-like FormData parts (string |
+  // Blob | {bytes()}) — the classic RN {uri, name, type} object shape
+  // throws "Unsupported FormDataPart implementation". expo-file-system's
+  // `File` implements Blob, so it works here.
+  const fileBlob = new File(file.uri);
+
   const form = new FormData();
-  form.append("file", {
-    uri: file.uri,
-    name: file.name,
-    type: file.type,
-  } as unknown as Blob);
+  form.append("file", fileBlob, file.name);
   form.append("fileName", file.name);
   form.append("publicKey", PUBLIC_KEY);
   form.append("token", token);

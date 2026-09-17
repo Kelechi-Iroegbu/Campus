@@ -3,9 +3,8 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { Redirect, Stack, useRouter } from "expo-router";
-import { useAuth } from "@clerk/expo";
-import { setOfferingType } from "@/lib/onboardingMode";
+import { Stack, useRouter } from "expo-router";
+import { useVendorDraft } from "@/lib/vendorApplication";
 
 type Offering = "product" | "service" | "courier";
 
@@ -50,16 +49,12 @@ const OPTIONS: {
 
 export default function OfferingType() {
   const router = useRouter();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { patch } = useVendorDraft();
   const [selected, setSelected] = useState<Offering | null>(null);
-
-  if (isLoaded && isSignedIn) {
-    return <Redirect href="/(tabs)" />;
-  }
 
   function onContinue() {
     if (!selected) return;
-    setOfferingType(selected);
+    patch({ offeringType: selected });
     router.push(`/vendor-application/${selected}-details` as never);
   }
 
@@ -100,9 +95,6 @@ export default function OfferingType() {
             style={{ fontSize: 25, lineHeight: 33 }}
           >
             Pick the option that best fits what you&apos;ll bring to Campus.
-          </Text>
-          <Text className="mt-3 text-[16px] font-inter-regular text-[#8A8A8A]">
-            Bring to Campus.
           </Text>
 
           <View className="mt-7">

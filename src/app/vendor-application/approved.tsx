@@ -2,9 +2,10 @@ import { View, Text, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useRouter } from "expo-router";
-import { getOfferingType } from "@/lib/onboardingMode";
+import { useApi } from "@/lib/api";
 
 const GREEN = "#37AE3A";
 const HEADING = "#14142B";
@@ -28,6 +29,26 @@ function Sparkle({
 
 export default function Approved() {
   const router = useRouter();
+  const api = useApi();
+  const [offeringType, setOfferingType] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api("/api/vendor-applications/mine")
+      .then((r) => r.json())
+      .then((j: { application: { offeringType: string } | null }) => {
+        if (!cancelled) setOfferingType(j.application?.offeringType ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
+  const goToDashboard = () =>
+    router.replace(
+      (offeringType === "courier" ? "/courier/dashboard" : "/vendor/dashboard") as never,
+    );
 
   return (
     <View className="flex-1 bg-white">
@@ -77,13 +98,7 @@ export default function Approved() {
         {/* CTA */}
         <View className="px-6 pb-8 pt-2">
           <Pressable
-            onPress={() =>
-              router.replace(
-                (getOfferingType() === "courier"
-                  ? "/courier/dashboard"
-                  : "/vendor/dashboard") as never,
-              )
-            }
+            onPress={goToDashboard}
             className="overflow-hidden rounded-[22px]"
             style={{
               shadowColor: "#F0531E",

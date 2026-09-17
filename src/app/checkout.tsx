@@ -10,48 +10,14 @@ import { CartItemHeroCard } from "@/components/checkout/CartItemHeroCard";
 import type { CartLine } from "@/components/checkout/CartItemRow";
 import {
   CARD_GAP,
-  DELIVERY_FEE,
   HERO_MAX_CARD_HEIGHT,
   HERO_MIN_CARD_HEIGHT,
   MAX_CARD_HEIGHT,
   MIN_CARD_HEIGHT,
-  SERVICE_FEE,
 } from "@/components/checkout/constants";
 import { OrderRecapCard } from "@/components/checkout/OrderRecapCard";
-
-const jollofRiceImage = require("@/assets/images/vendor/food-jollof-chicken.png");
-const friedRiceImage = require("@/assets/images/vendor/food-fried-rice.png");
-const zoboDrinkImage = require("@/assets/images/home/vendor-zee-drinks.png");
-
-const INITIAL_CART: CartLine[] = [
-  {
-    id: "jollof-rice",
-    name: "Jollof Rice",
-    vendorName: "Mama T's Kitchen",
-    category: "Food and Meals",
-    price: 2500,
-    image: jollofRiceImage,
-    quantity: 1,
-  },
-  {
-    id: "fried-rice-chicken",
-    name: "Fried Rice & Chicken",
-    vendorName: "Mama T's Kitchen",
-    category: "Food and Meals",
-    price: 2800,
-    image: friedRiceImage,
-    quantity: 1,
-  },
-  {
-    id: "zobo-drink",
-    name: "Zobo Drink",
-    vendorName: "Zee Drinks",
-    category: "Beverages",
-    price: 800,
-    image: zoboDrinkImage,
-    quantity: 1,
-  },
-];
+import { useCartStore, cartSubtotalMinor } from "@/lib/cartStore";
+import { PLATFORM_FEE_MINOR } from "@/lib/constants";
 
 function formatNaira(amount: number) {
   return `₦${amount.toLocaleString()}`;
@@ -59,24 +25,30 @@ function formatNaira(amount: number) {
 
 export default function Checkout() {
   const router = useRouter();
-  const [cart, setCart] = useState(INITIAL_CART);
+  const { vendorId, vendorName, items, updateQuantity, removeItem } = useCartStore();
   const [listHeight, setListHeight] = useState(0);
 
   const onListLayout = useCallback((e: LayoutChangeEvent) => {
     setListHeight(e.nativeEvent.layout.height);
   }, []);
 
-  const updateQuantity = (id: string, delta: number) => {
-    setCart((prev) =>
-      prev.map((line) =>
-        line.id === id ? { ...line, quantity: Math.max(1, line.quantity + delta) } : line
-      )
-    );
-  };
+  const cart: CartLine[] = items.map((i) => ({
+    id: i.productId,
+    name: i.name,
+    vendorName: vendorName ?? "",
+    category: "",
+    price: i.priceMinor / 100,
+    image: i.imageUrl
+      ? { uri: i.imageUrl }
+      : require("@/assets/images/home/vendor-mama-t.png"),
+    quantity: i.quantity,
+  }));
 
   const itemCount = cart.reduce((sum, line) => sum + line.quantity, 0);
-  const subtotal = cart.reduce((sum, line) => sum + line.price * line.quantity, 0);
-  const total = subtotal + DELIVERY_FEE + SERVICE_FEE;
+  const subtotalMinor = cartSubtotalMinor(items);
+  const subtotal = subtotalMinor / 100;
+  const platformFee = PLATFORM_FEE_MINOR / 100;
+  const total = subtotal + platformFee;
 
   const totalGap = CARD_GAP * Math.max(0, cart.length - 1);
   const needsScroll = listHeight > 0 && cart.length * MIN_CARD_HEIGHT + totalGap > listHeight;
@@ -84,23 +56,38 @@ export default function Checkout() {
   const handlePay = () => {
     router.push({
       pathname: "/payment",
-      params: {
-        vendorName: cart[0]?.vendorName ?? "",
-        items: JSON.stringify(
-          cart.map(({ id, name, price, quantity, image, category }) => ({
-            id,
-            name,
-            price,
-            quantity,
-            image,
-            category,
-          }))
-        ),
-        deliveryFee: String(DELIVERY_FEE),
-        serviceFee: String(SERVICE_FEE),
-      },
+      params: { vendorId: vendorId ?? "", vendorName: vendorName ?? "" },
     });
   };
+
+  if (cart.length === 0) {
+    return (
+      <View className="flex-1 bg-[#FBF3EC]">
+        <Stack.Screen options={{ headerShown: false }} />
+        <StatusBar style="dark" />
+        <SafeAreaView className="flex-1 items-center justify-center px-8" edges={["top", "bottom"]}>
+          <Pressable
+            onPress={() => router.back()}
+            hitSlop={8}
+            className="absolute left-3 top-3"
+          >
+            <Ionicons name="chevron-back" size={24} color="#1F1F1F" />
+          </Pressable>
+          <Ionicons name="cart-outline" size={40} color="#D8CDBF" />
+          <Text className="mt-3 text-center text-[15px] font-inter-medium text-[#8A8A8A]">
+            Your cart is empty.
+          </Text>
+          <Pressable
+            onPress={() => router.push("/(tabs)")}
+            className="mt-5 rounded-2xl px-6 py-3"
+            style={{ backgroundColor: ORANGE }}
+          >
+            <Text className="text-[14px] font-inter-bold text-white">Browse vendors</Text>
+          </Pressable>
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 bg-[#FBF3EC]">
@@ -120,11 +107,6 @@ export default function Checkout() {
               </Text>
             </View>
           </View>
-          <Pressable hitSlop={8} className="pt-2">
-            <Text className="text-[13px] font-inter-semibold" style={{ color: ORANGE }}>
-              Edit
-            </Text>
-          </Pressable>
         </View>
 
         <View className="flex-1 px-3 pt-4" onLayout={onListLayout}>
@@ -133,6 +115,7 @@ export default function Checkout() {
               line={cart[0]}
               onIncrement={() => updateQuantity(cart[0].id, 1)}
               onDecrement={() => updateQuantity(cart[0].id, -1)}
+              onRemove={() => removeItem(cart[0].id)}
               style={{
                 flex: 1,
                 minHeight: HERO_MIN_CARD_HEIGHT,
@@ -150,6 +133,7 @@ export default function Checkout() {
                   line={line}
                   onIncrement={() => updateQuantity(line.id, 1)}
                   onDecrement={() => updateQuantity(line.id, -1)}
+                  onRemove={() => removeItem(line.id)}
                   style={{ minHeight: MIN_CARD_HEIGHT }}
                 />
               ))}
@@ -162,6 +146,7 @@ export default function Checkout() {
                   line={line}
                   onIncrement={() => updateQuantity(line.id, 1)}
                   onDecrement={() => updateQuantity(line.id, -1)}
+                  onRemove={() => removeItem(line.id)}
                   style={{
                     flexGrow: 1,
                     flexBasis: 0,
@@ -176,11 +161,9 @@ export default function Checkout() {
 
         <View>
           <OrderRecapCard
-            eta="15–20 min"
-            campus="Main Campus"
+            vendorName={vendorName ?? ""}
             subtotal={subtotal}
-            deliveryFee={DELIVERY_FEE}
-            serviceFee={SERVICE_FEE}
+            platformFee={platformFee}
             total={total}
           />
 

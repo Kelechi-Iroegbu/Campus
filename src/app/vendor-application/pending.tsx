@@ -1,9 +1,11 @@
+import { useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { Redirect, Stack, useRouter } from "expo-router";
-import { useAuth } from "@clerk/expo";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { useApi } from "@/lib/api";
+import { useSession } from "@/lib/session";
 
 const ORANGE = "#F0531E";
 const HEADING = "#111111";
@@ -94,16 +96,44 @@ function ClockArt() {
 
 export default function Pending() {
   const router = useRouter();
-  const { isLoaded, isSignedIn } = useAuth();
+  const api = useApi();
+  const { refetch } = useSession();
+  const [status, setStatus] = useState<string | null>(null);
+  const [reason, setReason] = useState<string | null>(null);
 
-  if (isLoaded && isSignedIn) {
-    return <Redirect href="/(tabs)" />;
-  }
+  const check = useCallback(async () => {
+    try {
+      const res = await api("/api/vendor-applications/mine");
+      const j = (await res.json()) as {
+        application: { status: string; rejectionReason: string | null } | null;
+      };
+      const s = j.application?.status ?? null;
+      setStatus(s);
+      setReason(j.application?.rejectionReason ?? null);
+      if (s === "approved") {
+        await refetch();
+        router.replace("/vendor-application/approved");
+      }
+    } catch {
+      // keep showing the pending state; try again on the next tick
+    }
+  }, [api, refetch, router]);
+
+  // Poll while the screen is focused (mirrors the wallet-topup poll pattern).
+  useFocusEffect(
+    useCallback(() => {
+      void check();
+      const id = setInterval(check, 5000);
+      return () => clearInterval(id);
+    }, [check]),
+  );
+
+  const rejected = status === "rejected";
 
   const goBack = () =>
     router.canGoBack()
       ? router.back()
-      : router.replace("/vendor-application/review");
+      : router.replace("/(tabs)");
 
   return (
     <View className="flex-1 bg-white">
@@ -128,49 +158,64 @@ export default function Pending() {
               className="mt-14 text-center text-[34px] font-inter-bold"
               style={{ color: HEADING, lineHeight: 42 }}
             >
-              Your application is under review.
+              {rejected
+                ? "We couldn't approve it yet."
+                : "Your application is under review."}
             </Text>
 
             <Text
               className="mt-6 text-center text-[16px] font-inter-regular"
               style={{ color: BODY, lineHeight: 26 }}
             >
-              We’ve received your application.{"\n"}A campus admin will review your
-              details{"\n"}and approve your account shortly.
+              {rejected
+                ? reason ?? "An admin sent it back. Update your details and resubmit."
+                : "We've received your application. A campus admin will review your details and approve your account shortly."}
             </Text>
           </View>
 
           <View className="flex-1" />
 
-          <View
-            className="mb-10 flex-row items-center rounded-[24px] px-5 py-[22px]"
-            style={{ backgroundColor: "#FCEBE0" }}
-          >
-            <View
-              className="h-14 w-14 items-center justify-center rounded-full"
-              style={{ backgroundColor: "#FADDCB" }}
+          {rejected ? (
+            <Pressable
+              onPress={() => router.replace("/vendor-application/offering-type")}
+              className="mb-10 items-center justify-center rounded-[18px]"
+              style={{ height: 58, backgroundColor: ORANGE }}
             >
-              <MaterialCommunityIcons
-                name="clipboard-check-outline"
-                size={26}
-                color={ORANGE}
-              />
-            </View>
-            <View className="ml-4 flex-1">
-              <Text
-                className="text-[18px] font-inter-bold"
-                style={{ color: HEADING }}
-              >
-                Dashboard preview
+              <Text className="text-[17px] font-inter-bold text-white">
+                Edit &amp; resubmit
               </Text>
-              <Text
-                className="mt-1 text-[14px] font-inter-regular"
-                style={{ color: "#6B6B6B" }}
+            </Pressable>
+          ) : (
+            <View
+              className="mb-10 flex-row items-center rounded-[24px] px-5 py-[22px]"
+              style={{ backgroundColor: "#FCEBE0" }}
+            >
+              <View
+                className="h-14 w-14 items-center justify-center rounded-full"
+                style={{ backgroundColor: "#FADDCB" }}
               >
-                You&apos;ll get full access once approved.
-              </Text>
+                <MaterialCommunityIcons
+                  name="clipboard-check-outline"
+                  size={26}
+                  color={ORANGE}
+                />
+              </View>
+              <View className="ml-4 flex-1">
+                <Text
+                  className="text-[18px] font-inter-bold"
+                  style={{ color: HEADING }}
+                >
+                  Hang tight
+                </Text>
+                <Text
+                  className="mt-1 text-[14px] font-inter-regular"
+                  style={{ color: "#6B6B6B" }}
+                >
+                  You&apos;ll get a notification the moment you&apos;re approved.
+                </Text>
+              </View>
             </View>
-          </View>
+          )}
         </View>
       </SafeAreaView>
     </View>

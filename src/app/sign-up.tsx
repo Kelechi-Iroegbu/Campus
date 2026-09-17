@@ -1,6 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
+  Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -12,8 +14,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
-import { Redirect, Stack, useRouter } from "expo-router";
+import { Redirect, Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useAuth, useSignUp } from "@clerk/expo";
+import { BANKS } from "@/lib/banks";
 
 const inputShadow = {
   shadowColor: "#1F1F1F",
@@ -58,10 +61,17 @@ export default function SignUp() {
   const router = useRouter();
   const { isLoaded, isSignedIn } = useAuth();
   const { signUp, fetchStatus } = useSignUp();
+  const { role } = useLocalSearchParams<{ role?: string }>();
+  const signUpRole = role === "vendor" ? "vendor" : "student";
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [bank, setBank] = useState<string | null>(null);
+  const [bankOpen, setBankOpen] = useState(false);
+  const [bankAccountNumber, setBankAccountNumber] = useState("");
+  const [bankAccountName, setBankAccountName] = useState("");
+  const scrollRef = useRef<ScrollView>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [agreed, setAgreed] = useState(false);
@@ -69,9 +79,12 @@ export default function SignUp() {
 
   const submitting = fetchStatus === "fetching";
 
+  // Reached only when sign-up completes without email verification. Route via
+  // `/post-auth` so a vendor continues to their application, not the student
+  // home.
   const navigateHome = useCallback(
-    () => router.replace("/(tabs)"),
-    [router],
+    () => router.replace(`/post-auth?role=${signUpRole}`),
+    [router, signUpRole],
   );
 
   const onCreateAccount = useCallback(async () => {
@@ -80,6 +93,11 @@ export default function SignUp() {
 
     if (!agreed) {
       setFormError("Please agree to the Terms & Conditions to continue.");
+      return;
+    }
+
+    if (password.length < 8) {
+      setFormError("Use a password with at least 8 characters.");
       return;
     }
 
@@ -94,7 +112,10 @@ export default function SignUp() {
       legalAccepted: agreed,
       unsafeMetadata: {
         phoneNumber: phone.trim(),
-        role: "student",
+        bankName: bank ?? undefined,
+        bankAccountNumber: bankAccountNumber.trim() || undefined,
+        bankAccountName: bankAccountName.trim() || undefined,
+        role: signUpRole,
       },
     });
 
@@ -116,10 +137,23 @@ export default function SignUp() {
       }
       router.push("/verify");
     }
-  }, [signUp, agreed, fullName, email, password, phone, navigateHome, router]);
+  }, [
+    signUp,
+    agreed,
+    fullName,
+    email,
+    password,
+    phone,
+    bank,
+    bankAccountNumber,
+    bankAccountName,
+    signUpRole,
+    navigateHome,
+    router,
+  ]);
 
   if (isLoaded && isSignedIn) {
-    return <Redirect href="/(tabs)" />;
+    return <Redirect href={`/post-auth?role=${signUpRole}`} />;
   }
 
   return (
@@ -130,9 +164,10 @@ export default function SignUp() {
       <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
         <KeyboardAvoidingView
           className="flex-1"
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
           <ScrollView
+            ref={scrollRef}
             className="flex-1"
             contentContainerStyle={{ paddingHorizontal: 32, paddingBottom: 32 }}
             keyboardShouldPersistTaps="handled"
@@ -180,6 +215,46 @@ export default function SignUp() {
                 textContentType="telephoneNumber"
               />
 
+              {signUpRole === "student" ? (
+                <>
+                  <View className="mb-6">
+                    <Text className="mb-2.5 text-[15px] font-inter-medium text-[#8A8A8A]">
+                      Bank
+                    </Text>
+                    <Pressable
+                      onPress={() => setBankOpen(true)}
+                      className="h-[58px] flex-row items-center justify-between rounded-2xl border border-[#E6E0D8] bg-white px-4"
+                      style={inputShadow}
+                    >
+                      <Text
+                        className="text-[17px] font-inter-regular"
+                        style={{ color: bank ? "#1A1A1A" : "#B8B2A8" }}
+                      >
+                        {bank ?? "Select bank"}
+                      </Text>
+                      <Ionicons name="chevron-down" size={20} color="#8C8C8C" />
+                    </Pressable>
+                  </View>
+                  <Field
+                    label="Bank Account Number"
+                    value={bankAccountNumber}
+                    onChangeText={(t) =>
+                      setBankAccountNumber(t.replace(/[^0-9]/g, "").slice(0, 10))
+                    }
+                    keyboardType="number-pad"
+                    maxLength={10}
+                    placeholder="10-digit account number"
+                  />
+                  <Field
+                    label="Account Name"
+                    value={bankAccountName}
+                    onChangeText={setBankAccountName}
+                    autoCapitalize="characters"
+                    placeholder="As shown at the bank"
+                  />
+                </>
+              ) : null}
+
               <View className="mb-5">
                 <Text className="mb-2.5 text-[15px] font-inter-medium text-[#8A8A8A]">
                   Password
@@ -190,9 +265,16 @@ export default function SignUp() {
                 >
                   <TextInput
                     className="flex-1 text-[17px] font-inter-regular text-[#1A1A1A]"
+                    placeholder="At least 8 characters"
                     placeholderTextColor="#B8B2A8"
                     value={password}
                     onChangeText={setPassword}
+                    onFocus={() => {
+                      const sub = Keyboard.addListener("keyboardDidShow", () => {
+                        scrollRef.current?.scrollToEnd({ animated: true });
+                        sub.remove();
+                      });
+                    }}
                     secureTextEntry={!showPassword}
                     autoCapitalize="none"
                     autoComplete="password-new"
@@ -276,6 +358,52 @@ export default function SignUp() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      <Modal
+        visible={bankOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBankOpen(false)}
+      >
+        <Pressable
+          onPress={() => setBankOpen(false)}
+          className="flex-1 justify-end bg-black/40"
+        >
+          <Pressable className="max-h-[75%] rounded-t-3xl bg-white px-5 pb-8 pt-3">
+            <View className="mb-2 h-1.5 w-12 self-center rounded-full bg-[#E0DAD1]" />
+            <Text className="mb-2 px-1 text-[17px] font-inter-bold text-[#151515]">
+              Select bank
+            </Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {BANKS.map((b) => {
+                const active = b === bank;
+                return (
+                  <Pressable
+                    key={b}
+                    onPress={() => {
+                      setBank(b);
+                      setBankOpen(false);
+                    }}
+                    className="flex-row items-center justify-between border-b border-[#F1ECE4] py-4"
+                  >
+                    <Text
+                      className={`text-[16px] ${
+                        active ? "font-inter-semibold" : "font-inter-regular"
+                      }`}
+                      style={{ color: active ? "#F0531E" : "#151515" }}
+                    >
+                      {b}
+                    </Text>
+                    {active ? (
+                      <Ionicons name="checkmark" size={20} color="#F0531E" />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

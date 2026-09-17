@@ -1,38 +1,44 @@
 import { useCallback } from "react";
 import { Image, Pressable, View } from "react-native";
-import * as AuthSession from "expo-auth-session";
-import * as WebBrowser from "expo-web-browser";
 import { StatusBar } from "expo-status-bar";
-import { Redirect, Stack, useRouter } from "expo-router";
+import { Redirect, Stack, useLocalSearchParams, useRouter } from "expo-router";
+import type { Href } from "expo-router";
 import { useAuth, useSSO } from "@clerk/expo";
 
-// Required by expo-auth-session so the in-app browser hands control back after
-// the OAuth redirect. Safe to call at module scope.
-WebBrowser.maybeCompleteAuthSession();
-
-// Explicit, stable native redirect target. There is deliberately NO
-// `sso-callback` route file — a route there would let Android hand the
-// redirect to a fresh screen instead of the in-app auth session, breaking
-// the flow.
-const redirectUrl = AuthSession.makeRedirectUri({
-  scheme: "campus",
-  path: "sso-callback",
-});
+// `ClerkProvider` already calls `WebBrowser.maybeCompleteAuthSession()` and
+// `startSSOFlow` defaults `redirectUrl` to `makeRedirectUri({ path: "sso-callback" })`
+// — do NOT re-add either here. Duplicating them makes the returning redirect miss
+// the in-app auth session, so it deep-links into Expo Router and flashes the
+// "Unmatched Route" screen before auth finishes. `src/app/sso-callback.tsx` is a
+// no-op safety net in case a redirect ever leaks through.
 
 export default function SignIn() {
   const router = useRouter();
   const { isLoaded, isSignedIn } = useAuth();
   const { startSSOFlow } = useSSO();
+  const { role } = useLocalSearchParams<{ role?: string }>();
+
+  // Where to land after auth: `/post-auth` resolves the real area (student /
+  // vendor / courier) from the account, asking which side to use if it's
+  // also a vendor (first time only, then remembers). SSO can't tell up
+  // front whether it'll create a new account or sign into an existing one —
+  // that's only known once `startSSOFlow` resolves. `role` (the bootstrap
+  // hint for a brand-new vendor sign-up) is forwarded only when Clerk
+  // returns a `signUp` resource; an existing account (`signIn`) has nothing
+  // to bootstrap, so it goes to plain `/post-auth`.
+  const afterAuthFallback: Href = "/post-auth";
 
   const runSSO = useCallback(
     async (strategy: "oauth_google" | "oauth_apple") => {
       try {
-        const { createdSessionId, setActive, authSessionResult } =
-          await startSSOFlow({ strategy, redirectUrl });
+        const { createdSessionId, setActive, authSessionResult, signUp } =
+          await startSSOFlow({ strategy });
 
         if (createdSessionId && setActive) {
           await setActive({ session: createdSessionId });
-          router.replace("/(tabs)");
+          router.replace(
+            (signUp && role ? `/post-auth?role=${role}` : afterAuthFallback) as Href,
+          );
           return;
         }
 
@@ -48,14 +54,16 @@ export default function SignIn() {
         console.error(`${strategy} SSO error`, err);
       }
     },
-    [startSSOFlow, router],
+    [startSSOFlow, router, role],
   );
 
   const onGooglePress = useCallback(() => runSSO("oauth_google"), [runSSO]);
   const onApplePress = useCallback(() => runSSO("oauth_apple"), [runSSO]);
 
   if (isLoaded && isSignedIn) {
-    return <Redirect href="/(tabs)" />;
+    // Already authenticated (revisiting this screen, not a fresh SSO/sign-up
+    // event) — always an existing session at this point, nothing to bootstrap.
+    return <Redirect href={afterAuthFallback} />;
   }
 
   return (
@@ -67,11 +75,6 @@ export default function SignIn() {
         source={require("@/assets/images/auth-screen.png")}
         style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" }}
         resizeMode="cover"
-      />
-
-      {/* "Switch" account hotspot */}
-      <Pressable
-        style={{ position: "absolute", top: "8.5%", height: "5%", left: "62%", right: "7%" }}
       />
 
       {/* "Continue with Google" hotspot */}
@@ -86,16 +89,18 @@ export default function SignIn() {
         onPress={onApplePress}
       />
 
-      {/* "Log in" hotspot */}
+      {/* "Log in" hotspot — always an existing account, nothing to forward */}
       <Pressable
         style={{ position: "absolute", top: "77%", height: "7%", left: "8%", right: "8%" }}
         onPress={() => router.push("/login")}
       />
 
-      {/* "Sign up" hotspot */}
+      {/* "Sign up" hotspot → the "Create your account" form (carry the role) */}
       <Pressable
         style={{ position: "absolute", top: "83.5%", height: "7%", left: "8%", right: "8%" }}
-        onPress={() => router.push("/register")}
+        onPress={() =>
+          router.push(role ? `/sign-up?role=${role}` : "/sign-up")
+        }
       />
     </View>
   );

@@ -5,6 +5,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useRouter } from "expo-router";
+import { useSession } from "@/lib/session";
 import { useVendorCopy, useVendorMode } from "@/lib/vendorMode";
 
 const HEADING = "#14142B";
@@ -129,9 +130,11 @@ function StatusPill({ status }: { status: Status }) {
 
 export default function VendorDashboard() {
   const router = useRouter();
+  const { me } = useSession();
   const copy = useVendorCopy();
   const isService = useVendorMode() === "service";
   const recent = isService ? RECENT_BOOKINGS : RECENT_ORDERS;
+  const storeOpen = me?.vendor?.isOpen ?? true;
 
   return (
     <View className="flex-1" style={{ backgroundColor: "#FBF7F2" }}>
@@ -148,7 +151,11 @@ export default function VendorDashboard() {
           <View className="mt-2 flex-row items-start justify-between">
             <View className="flex-1 flex-row items-center gap-3 pr-3">
               <Image
-                source={require("@/assets/images/vendor/food-efo-riro.png")}
+                source={
+                  me?.vendor?.shopIconUrl || me?.vendor?.coverPhotoUrl
+                    ? { uri: me.vendor.shopIconUrl ?? me.vendor.coverPhotoUrl ?? undefined }
+                    : require("@/assets/images/vendor/food-efo-riro.png")
+                }
                 style={{ width: 52, height: 52, borderRadius: 14 }}
                 resizeMode="cover"
               />
@@ -187,22 +194,29 @@ export default function VendorDashboard() {
                   <Ionicons name="settings-outline" size={20} color="#1A1A1A" />
                 </IconButton>
               </View>
-              <View
+              <Pressable
+                onPress={() => router.push("/vendor/profile" as never)}
                 className="flex-row items-center gap-1.5 rounded-full px-3 py-1.5"
-                style={{ backgroundColor: "#E4F4E6" }}
+                style={{
+                  backgroundColor: storeOpen ? "#E4F4E6" : "#F3E6E2",
+                }}
               >
                 <View
                   className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: GREEN }}
+                  style={{ backgroundColor: storeOpen ? GREEN : ORANGE }}
                 />
                 <Text
                   className="text-[14px] font-inter-semibold"
-                  style={{ color: GREEN }}
+                  style={{ color: storeOpen ? GREEN : ORANGE }}
                 >
-                  Open
+                  {storeOpen ? "Open" : "Closed"}
                 </Text>
-                <Ionicons name="chevron-down" size={14} color={GREEN} />
-              </View>
+                <Ionicons
+                  name="chevron-down"
+                  size={14}
+                  color={storeOpen ? GREEN : ORANGE}
+                />
+              </Pressable>
             </View>
           </View>
 

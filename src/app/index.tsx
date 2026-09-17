@@ -8,7 +8,7 @@ export default function Welcome() {
   const { isLoaded, isSignedIn } = useAuth();
 
   if (isLoaded && isSignedIn) {
-    return <Redirect href="/(tabs)" />;
+    return <Redirect href="/post-auth" />;
   }
 
   return (

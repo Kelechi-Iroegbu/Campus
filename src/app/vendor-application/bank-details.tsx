@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -11,11 +11,11 @@ import {
 } from "react-native";
 import type { ComponentProps } from "react";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { ActivityIndicator } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { Redirect, Stack, useRouter } from "expo-router";
-import { useAuth } from "@clerk/expo";
+import { Stack, useRouter } from "expo-router";
+import { useVendorDraft } from "@/lib/vendorApplication";
+import { BANKS } from "@/lib/banks";
 
 const ORANGE = "#F0531E";
 const HEADING = "#14142B";
@@ -27,28 +27,6 @@ const fieldShadow = {
   shadowRadius: 3,
   elevation: 1,
 };
-
-const BANKS = [
-  "Access Bank",
-  "Ecobank Nigeria",
-  "Fidelity Bank",
-  "First Bank of Nigeria",
-  "First City Monument Bank",
-  "Guaranty Trust Bank",
-  "Keystone Bank",
-  "Kuda Bank",
-  "OPay",
-  "PalmPay",
-  "Polaris Bank",
-  "Providus Bank",
-  "Stanbic IBTC Bank",
-  "Sterling Bank",
-  "Union Bank of Nigeria",
-  "United Bank for Africa",
-  "Unity Bank",
-  "Wema Bank",
-  "Zenith Bank",
-];
 
 function SectionTitle({ children }: { children: string }) {
   return (
@@ -84,50 +62,32 @@ function Field({
 export default function BankDetails() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { draft, patch } = useVendorDraft();
 
-  const [bank, setBank] = useState<string | null>(null);
+  const [bank, setBank] = useState<string | null>(draft.bankName || null);
   const [bankOpen, setBankOpen] = useState(false);
-  const [accountNumber, setAccountNumber] = useState("");
-  const [accountName, setAccountName] = useState("");
-  const [resolving, setResolving] = useState(false);
-  const [resolveError, setResolveError] = useState<string | null>(null);
-
-  if (isLoaded && isSignedIn) {
-    return <Redirect href="/(tabs)" />;
-  }
+  const [accountNumber, setAccountNumber] = useState(draft.bankAccountNumber);
+  const [accountName, setAccountName] = useState(draft.bankAccountName);
 
   const goBack = () =>
     router.canGoBack()
       ? router.back()
-      : router.replace("/vendor-application/kyc-business");
+      : router.replace("/vendor-application/cover-photo");
 
-  const numberReady = bank !== null && accountNumber.length === 10;
+  // Paystack account-name resolution is Milestone 7 — for now the applicant
+  // types the account name, and admin eyeballs it on review.
+  const canContinue =
+    bank !== null && accountNumber.length === 10 && accountName.trim().length > 1;
 
-  // Resolve the account name once a bank + 10-digit number are entered.
-  // Real impl: resolveAccountNumber({ accountNumber, bankCode }) from
-  // src/lib/paystack.ts (needs the payments backend + PAYSTACK_SECRET_KEY).
-  useEffect(() => {
-    if (!numberReady) {
-      setAccountName("");
-      setResolveError(null);
-      return;
-    }
-    let active = true;
-    setResolving(true);
-    setResolveError(null);
-    const t = setTimeout(() => {
-      if (!active) return;
-      setResolving(false);
-      setAccountName("MAMA NGOZI OKAFOR");
-    }, 900);
-    return () => {
-      active = false;
-      clearTimeout(t);
-    };
-  }, [numberReady, bank, accountNumber]);
-
-  const canContinue = numberReady && accountName.length > 0 && !resolving;
+  function onContinue() {
+    if (!canContinue || !bank) return;
+    patch({
+      bankName: bank,
+      bankAccountNumber: accountNumber,
+      bankAccountName: accountName.trim(),
+    });
+    router.push("/vendor-application/review" as never);
+  }
 
   return (
     <View className="flex-1 bg-white">
@@ -169,11 +129,11 @@ export default function BankDetails() {
             <View className="h-[6px] w-full overflow-hidden rounded-full bg-[#E6E6E6]">
               <View
                 className="h-full rounded-full"
-                style={{ width: "85.7%", backgroundColor: ORANGE }}
+                style={{ width: "80%", backgroundColor: ORANGE }}
               />
             </View>
             <Text className="mt-2.5 text-[14px] font-inter-regular text-[#8A8A8A]">
-              Step 6 of 7
+              Step 4 of 5
             </Text>
           </View>
 
@@ -224,40 +184,16 @@ export default function BankDetails() {
                 maxLength={10}
               />
 
-              {/* Account name (resolved) */}
-              <View
-                style={fieldShadow}
-                className="mb-2 h-[60px] flex-row items-center gap-4 rounded-2xl border border-[#ECE7DF] bg-white px-5"
-              >
-                <Ionicons name="person-outline" size={22} color={ORANGE} />
-                {resolving ? (
-                  <View className="flex-1 flex-row items-center gap-2">
-                    <ActivityIndicator size="small" color={ORANGE} />
-                    <Text className="text-[15px] font-inter-regular text-[#8C8C8C]">
-                      Verifying account…
-                    </Text>
-                  </View>
-                ) : (
-                  <Text
-                    className="flex-1 text-[16px] font-inter-semibold"
-                    style={{ color: accountName ? HEADING : "#8C8C8C" }}
-                  >
-                    {accountName || "Account name"}
-                  </Text>
-                )}
-                {accountName ? (
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={20}
-                    color="#1F9D4D"
-                  />
-                ) : null}
-              </View>
-              {resolveError ? (
-                <Text className="mb-2 text-[13px] font-inter-regular text-[#D64524]">
-                  {resolveError}
-                </Text>
-              ) : null}
+              {/* Account name */}
+              <Field
+                leftIcon={
+                  <Ionicons name="person-outline" size={22} color={ORANGE} />
+                }
+                placeholder="Account name (as shown at the bank)"
+                value={accountName}
+                onChangeText={setAccountName}
+                autoCapitalize="characters"
+              />
 
               {/* Info */}
               <View
@@ -277,9 +213,7 @@ export default function BankDetails() {
             </View>
 
             <Pressable
-              onPress={() =>
-                router.push("/vendor-application/approved" as never)
-              }
+              onPress={onContinue}
               disabled={!canContinue}
               className="mb-3 mt-10 items-center justify-center rounded-[18px]"
               style={{

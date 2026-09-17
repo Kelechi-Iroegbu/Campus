@@ -1,6 +1,8 @@
 import { useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,7 +17,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useRouter } from "expo-router";
 import { useVendorMode } from "@/lib/vendorMode";
-import { addService } from "@/data/serviceBooking";
+import { useApi } from "@/lib/api";
+import { useImageUpload } from "@/lib/useImageUpload";
 
 const HEADING = "#14142B";
 const ORANGE = "#F0531E";
@@ -58,7 +61,9 @@ function Field(props: ComponentProps<typeof TextInput>) {
 
 export default function AddProduct() {
   const router = useRouter();
+  const api = useApi();
   const isService = useVendorMode() === "service";
+  const { pickAndUpload, uploading, error: uploadError } = useImageUpload();
   const goBack = () =>
     router.canGoBack()
       ? router.back()
@@ -69,25 +74,65 @@ export default function AddProduct() {
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [duration, setDuration] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const canSubmit =
+    !saving &&
+    !uploading &&
     name.trim().length > 0 &&
     price.trim().length > 0 &&
     (!isService || Number(duration) > 0);
 
-  const submit = () => {
-    if (!canSubmit) return;
-    if (isService) {
-      addService({
-        name: name.trim(),
-        durationMin: Number(duration),
-        priceMinor: Number(price) * 100,
-      });
-      goBack();
-      Alert.alert("Service saved", "Go to the Services list to turn it on.");
-      return;
+  const onPickPhoto = async () => {
+    const url = await pickAndUpload();
+    if (url) {
+      setPhoto(url);
+    } else if (uploadError) {
+      Alert.alert("Couldn't upload photo", uploadError);
     }
-    goBack();
+  };
+
+  const submit = async () => {
+    if (!canSubmit) return;
+
+    setSaving(true);
+    try {
+      const res = isService
+        ? await api("/api/services", {
+            method: "POST",
+            body: JSON.stringify({
+              name: name.trim(),
+              description: description.trim() || undefined,
+              durationMinutes: Number(duration),
+              priceMinor: Math.round(Number(price) * 100),
+              isActive: false,
+            }),
+          })
+        : await api("/api/products", {
+            method: "POST",
+            body: JSON.stringify({
+              name: name.trim(),
+              description: description.trim() || undefined,
+              priceMinor: Math.round(Number(price) * 100),
+              imageUrl: photo ?? undefined,
+            }),
+          });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(j?.error ?? `Failed (${res.status})`);
+      }
+      goBack();
+      if (isService) {
+        Alert.alert("Service saved", "Go to the Services list to turn it on.");
+      }
+    } catch (err) {
+      Alert.alert(
+        "Couldn't save",
+        err instanceof Error ? err.message : "Something went wrong.",
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -134,11 +179,9 @@ export default function AddProduct() {
                   Photo
                 </Text>
                 <Pressable
-                  onPress={() => {
-                    /* wired once expo-image-picker is added */
-                    setPhoto(photo);
-                  }}
-                  className="items-center justify-center rounded-2xl py-9"
+                  onPress={onPickPhoto}
+                  disabled={uploading}
+                  className="items-center justify-center overflow-hidden rounded-2xl py-9"
                   style={{
                     borderWidth: 1.5,
                     borderStyle: "dashed",
@@ -146,17 +189,28 @@ export default function AddProduct() {
                     backgroundColor: "#FDF1EA",
                   }}
                 >
+                  {photo ? (
+                    <Image
+                      source={{ uri: photo }}
+                      style={{ position: "absolute", width: "100%", height: "100%" }}
+                      resizeMode="cover"
+                    />
+                  ) : null}
                   <View
                     className="h-[76px] w-[76px] items-center justify-center rounded-full"
-                    style={{ backgroundColor: "#F8DDCC" }}
+                    style={{ backgroundColor: photo ? "#FFFFFFDD" : "#F8DDCC" }}
                   >
-                    <Ionicons name="camera-outline" size={34} color={ORANGE} />
+                    {uploading ? (
+                      <ActivityIndicator color={ORANGE} />
+                    ) : (
+                      <Ionicons name="camera-outline" size={34} color={ORANGE} />
+                    )}
                   </View>
                   <Text
                     className="mt-3 text-[16px] font-inter-bold"
                     style={{ color: ORANGE }}
                   >
-                    Add photo
+                    {uploading ? "Uploading…" : photo ? "Change photo" : "Add photo"}
                   </Text>
                 </Pressable>
               </>
@@ -236,7 +290,11 @@ export default function AddProduct() {
               }}
             >
               <Text className="text-[18px] font-inter-bold text-white">
-                {isService ? "Add service" : "Add product"}
+                {saving
+                  ? "Saving…"
+                  : isService
+                    ? "Add service"
+                    : "Add product"}
               </Text>
             </Pressable>
           </View>

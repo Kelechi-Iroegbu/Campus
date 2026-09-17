@@ -1,17 +1,11 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Alert, Image, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { orders, type OrderStatus } from "@/data/orders";
-import {
-  cancelAppointment,
-  PROVIDER,
-  STUDENT_NAME,
-  useBookingStore,
-} from "@/data/serviceBooking";
-import { format12, formatDayShort, formatNaira, ymd } from "@/lib/booking";
+import { useApi } from "@/lib/api";
+import { format12, formatDayShort, formatNaira, watLocalFromIso } from "@/lib/booking";
 
 const cardShadow = {
   shadowColor: "#1F1F1F",
@@ -21,22 +15,54 @@ const cardShadow = {
   elevation: 2,
 };
 
+type OrderStatus = "placed" | "accepted" | "ready" | "completed" | "cancelled";
+
+type OrderRow = {
+  order: {
+    id: string;
+    status: OrderStatus;
+    totalMinor: number;
+    placedAt: string;
+  };
+  vendorName: string;
+  vendorCoverPhotoUrl: string | null;
+};
+
 const STATUS_LABEL: Record<OrderStatus, string> = {
-  preparing: "Preparing",
-  ready: "Ready",
-  "picked-up": "Picked up",
+  placed: "Placed",
+  accepted: "Preparing",
+  ready: "Ready for pickup",
   completed: "Completed",
+  cancelled: "Cancelled",
 };
 
 const STATUS_COLOR: Record<OrderStatus, string> = {
-  preparing: "#FF6B4A",
-  ready: "#FF6B4A",
-  "picked-up": "#FF6B4A",
+  placed: "#FF6B4A",
+  accepted: "#FF6B4A",
+  ready: "#3FA65A",
   completed: "#3FA65A",
+  cancelled: "#8A8A8A",
 };
+
+type AppointmentStatus = "booked" | "confirmed" | "completed" | "cancelled" | "no_show";
+
+type AppointmentRow = {
+  appointment: {
+    id: string;
+    status: AppointmentStatus;
+    serviceName: string;
+    totalMinor: number;
+    scheduledStart: string;
+  };
+  vendorName: string;
+  vendorCoverPhotoUrl: string | null;
+};
+
+const POLL_MS = 12_000;
 
 export default function Orders() {
   const router = useRouter();
+  const api = useApi();
   const { tab } = useLocalSearchParams<{ tab?: string }>();
   const [activeTab, setActiveTab] = useState<"ongoing" | "past">(
     tab === "past" ? "past" : "ongoing"
@@ -49,22 +75,92 @@ export default function Orders() {
     if (tab === "past" || tab === "ongoing") setActiveTab(tab);
   }
 
-  const filtered = orders.filter((order) =>
-    activeTab === "ongoing" ? order.status !== "completed" : order.status === "completed"
+  const [orderRows, setOrderRows] = useState<OrderRow[]>([]);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  const loadOrders = useCallback(async () => {
+    try {
+      const res = await api("/api/orders");
+      if (!res.ok) return;
+      const j = (await res.json()) as { orders: OrderRow[] };
+      setOrderRows(j.orders ?? []);
+    } catch {
+      // keep showing whatever was last loaded
+    }
+  }, [api]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadOrders();
+      const id = setInterval(loadOrders, POLL_MS);
+      return () => clearInterval(id);
+    }, [loadOrders]),
   );
 
-  const { appointments, services } = useBookingStore();
-  const todayStr = ymd(new Date());
-  const mine = appointments.filter((a) => a.customerName === STUDENT_NAME);
-  const upcoming = mine
-    .filter((a) => a.status === "booked" && a.date >= todayStr)
-    .sort((a, b) => `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`));
-  const history = mine
-    .filter((a) => a.status !== "booked" || a.date < todayStr)
-    .sort((a, b) => `${b.date}${b.start}`.localeCompare(`${a.date}${a.start}`));
+  const filtered = orderRows.filter((row) =>
+    activeTab === "ongoing"
+      ? row.order.status === "placed" || row.order.status === "accepted" || row.order.status === "ready"
+      : row.order.status === "completed" || row.order.status === "cancelled",
+  );
+
+  function cancelOrder(orderId: string) {
+    Alert.alert("Cancel order?", "You'll be refunded in full.", [
+      { text: "Keep", style: "cancel" },
+      {
+        text: "Cancel order",
+        style: "destructive",
+        onPress: async () => {
+          setCancellingId(orderId);
+          try {
+            const res = await api(`/api/orders/${orderId}/cancel`, { method: "POST" });
+            if (res.ok) void loadOrders();
+            else {
+              const data = (await res.json().catch(() => null)) as { error?: string } | null;
+              Alert.alert("Couldn't cancel", data?.error ?? "Try again.");
+            }
+          } finally {
+            setCancellingId(null);
+          }
+        },
+      },
+    ]);
+  }
+
+  const [appointmentRows, setAppointmentRows] = useState<AppointmentRow[]>([]);
+  const [cancellingApptId, setCancellingApptId] = useState<string | null>(null);
+
+  const loadAppointments = useCallback(async () => {
+    try {
+      const res = await api("/api/appointments");
+      if (!res.ok) return;
+      const j = (await res.json()) as { appointments: AppointmentRow[] };
+      setAppointmentRows(j.appointments ?? []);
+    } catch {
+      // keep showing whatever was last loaded
+    }
+  }, [api]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadAppointments();
+      const id = setInterval(loadAppointments, POLL_MS);
+      return () => clearInterval(id);
+    }, [loadAppointments]),
+  );
+
+  const upcoming = appointmentRows
+    .filter((r) => r.appointment.status === "booked" || r.appointment.status === "confirmed")
+    .sort((a, b) => a.appointment.scheduledStart.localeCompare(b.appointment.scheduledStart));
+  const history = appointmentRows
+    .filter(
+      (r) =>
+        r.appointment.status === "completed" ||
+        r.appointment.status === "cancelled" ||
+        r.appointment.status === "no_show",
+    )
+    .sort((a, b) => b.appointment.scheduledStart.localeCompare(a.appointment.scheduledStart));
   const appts = activeTab === "ongoing" ? upcoming : history;
-  const serviceName = (id: string) =>
-    services.find((s) => s.id === id)?.name ?? "Service";
+
   const cancelAppt = (id: string) =>
     Alert.alert(
       "Cancel appointment?",
@@ -74,7 +170,19 @@ export default function Orders() {
         {
           text: "Cancel",
           style: "destructive",
-          onPress: () => cancelAppointment(id),
+          onPress: async () => {
+            setCancellingApptId(id);
+            try {
+              const res = await api(`/api/appointments/${id}/cancel`, { method: "POST" });
+              if (res.ok) void loadAppointments();
+              else {
+                const data = (await res.json().catch(() => null)) as { error?: string } | null;
+                Alert.alert("Couldn't cancel", data?.error ?? "Try again.");
+              }
+            } finally {
+              setCancellingApptId(null);
+            }
+          },
         },
       ],
     );
@@ -134,9 +242,11 @@ export default function Orders() {
               >
                 Appointments
               </Text>
-              {appts.map((a) => {
-                const isCancelled = a.status === "cancelled";
-                const isPast = !isCancelled && a.date < todayStr;
+              {appts.map(({ appointment: a, vendorName }) => {
+                const isCancelled = a.status === "cancelled" || a.status === "no_show";
+                const isCompleted = a.status === "completed";
+                const isCancellable = a.status === "booked" || a.status === "confirmed";
+                const { date, time } = watLocalFromIso(a.scheduledStart);
                 return (
                   <View
                     key={a.id}
@@ -155,19 +265,17 @@ export default function Orders() {
                           numberOfLines={1}
                           className="text-[15px] font-inter-bold text-[#1F1F1F]"
                         >
-                          {serviceName(a.serviceId)}
+                          {a.serviceName}
                         </Text>
                         <Text
                           numberOfLines={1}
                           className="mt-[2px] text-[12.5px] font-inter-regular text-[#8A8A8A]"
                         >
-                          {a.providerId === PROVIDER.id
-                            ? PROVIDER.name
-                            : "Provider"}
+                          {vendorName}
                         </Text>
                       </View>
                       <Text className="text-[15px] font-inter-bold text-[#1F1F1F]">
-                        {formatNaira(a.priceMinor)}
+                        {formatNaira(a.totalMinor)}
                       </Text>
                     </View>
 
@@ -184,29 +292,32 @@ export default function Orders() {
                           className="text-[12.5px] font-inter-semibold"
                           style={{ color: isCancelled ? "#8A8A8A" : "#E8497A" }}
                         >
-                          {isCancelled
+                          {a.status === "cancelled"
                             ? "Cancelled"
-                            : `${formatDayShort(a.date)} · ${format12(a.start)}`}
+                            : a.status === "no_show"
+                              ? "No-show"
+                              : `${formatDayShort(date)} · ${format12(time)}`}
                         </Text>
                       </View>
 
-                      {isCancelled ? null : isPast ? (
+                      {isCompleted ? (
                         <View className="rounded-full bg-[#E1F3E3] px-3 py-1">
                           <Text className="text-[12px] font-inter-semibold text-[#3FA65A]">
                             Done
                           </Text>
                         </View>
-                      ) : (
+                      ) : isCancellable ? (
                         <Pressable
                           onPress={() => cancelAppt(a.id)}
+                          disabled={cancellingApptId === a.id}
                           className="flex-row items-center gap-1 rounded-full bg-[#FCE7EC] px-4 py-2"
                         >
                           <Ionicons name="close" size={12} color="#C7345F" />
                           <Text className="text-[12.5px] font-inter-bold text-[#C7345F]">
-                            Cancel
+                            {cancellingApptId === a.id ? "Cancelling…" : "Cancel"}
                           </Text>
                         </Pressable>
-                      )}
+                      ) : null}
                     </View>
                   </View>
                 );
@@ -215,25 +326,34 @@ export default function Orders() {
           ) : null}
 
           <View className="mt-4 gap-3 px-3">
-            {filtered.map((order) => (
+            {filtered.map(({ order, vendorName, vendorCoverPhotoUrl }) => (
               <Pressable
                 key={order.id}
                 style={cardShadow}
                 className="rounded-[18px] bg-white p-3"
-                onPress={() => router.push(`/orders/${order.id}`)}
+                onPress={() => router.push(`/orders/${order.id}` as never)}
               >
                 <View className="flex-row items-start gap-3">
-                  <Image
-                    source={order.thumbnail}
-                    style={{ width: 64, height: 64, borderRadius: 14 }}
-                    resizeMode="cover"
-                  />
+                  {vendorCoverPhotoUrl ? (
+                    <Image
+                      source={{ uri: vendorCoverPhotoUrl }}
+                      style={{ width: 64, height: 64, borderRadius: 14 }}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View
+                      style={{ width: 64, height: 64, borderRadius: 14 }}
+                      className="items-center justify-center bg-[#F3E8DD]"
+                    >
+                      <Ionicons name="fast-food-outline" size={24} color="#C9A98D" />
+                    </View>
+                  )}
                   <View className="flex-1 shrink">
                     <Text className="text-[16px] font-inter-bold text-[#1F1F1F]">
-                      Order #{order.id}
+                      {vendorName}
                     </Text>
                     <Text className="mt-[2px] text-[13px] font-inter-regular text-[#8A8A8A]">
-                      {order.vendorName}
+                      Order #{order.id.slice(0, 8)}
                     </Text>
                     <View className="mt-1 flex-row items-center gap-1">
                       <Text
@@ -242,46 +362,26 @@ export default function Orders() {
                       >
                         {STATUS_LABEL[order.status]}
                       </Text>
-                      <Text className="text-[13px] text-[#8A8A8A]"> • </Text>
-                      <Text className="text-[13px] font-inter-regular text-[#8A8A8A]">
-                        {order.etaMinutes ?? order.date}
-                      </Text>
                     </View>
                   </View>
-                  <View className="h-9 w-9 items-center justify-center rounded-full border border-[#EAE0D6]">
-                    <Ionicons name="chevron-forward" size={16} color="#1F1F1F" />
+                  <View className="items-end">
+                    <Text className="text-[17px] font-inter-bold text-[#1F1F1F]">
+                      {formatNaira(order.totalMinor)}
+                    </Text>
                   </View>
                 </View>
 
-                {order.etaWindow ? (
-                  <View className="mt-3 flex-row items-center justify-between">
-                    <View className="mr-3 flex-1 flex-row items-center gap-2 rounded-2xl bg-[#FBE1D2] px-3 py-2">
-                      <Ionicons name="bicycle" size={18} color="#FF6B4A" />
-                      <View>
-                        <Text className="text-[11px] font-inter-regular text-[#8A7A6E]">
-                          Estimated arrival
-                        </Text>
-                        <Text className="text-[13px] font-inter-bold text-[#1F1F1F]">
-                          {order.etaWindow}
-                        </Text>
-                      </View>
-                    </View>
-                    <View className="items-end">
-                      <Text className="text-[17px] font-inter-bold text-[#1F1F1F]">
-                        ₦{order.total.toLocaleString()}
-                      </Text>
-                      <Text className="mt-[2px] text-[12px] font-inter-regular text-[#8A8A8A]">
-                        {order.date}
-                      </Text>
-                    </View>
-                  </View>
-                ) : (
-                  <View className="mt-3 items-end">
-                    <Text className="text-[17px] font-inter-bold text-[#1F1F1F]">
-                      ₦{order.total.toLocaleString()}
+                {order.status === "placed" ? (
+                  <Pressable
+                    onPress={() => cancelOrder(order.id)}
+                    disabled={cancellingId === order.id}
+                    className="mt-3 items-center self-start rounded-full bg-[#FCE7EC] px-4 py-2"
+                  >
+                    <Text className="text-[12.5px] font-inter-bold text-[#C7345F]">
+                      {cancellingId === order.id ? "Cancelling…" : "Cancel order"}
                     </Text>
-                  </View>
-                )}
+                  </Pressable>
+                ) : null}
               </Pressable>
             ))}
 

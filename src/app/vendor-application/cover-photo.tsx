@@ -1,11 +1,11 @@
-import { useState } from "react";
-import { Image, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
-import { Redirect, Stack, useRouter } from "expo-router";
-import { useAuth } from "@clerk/expo";
+import { Stack, useRouter } from "expo-router";
+import { useImageUpload } from "@/lib/useImageUpload";
+import { useVendorDraft } from "@/lib/vendorApplication";
 
 const ORANGE = "#F0531E";
 const HEADING = "#14142B";
@@ -14,20 +14,22 @@ const COVER_SAMPLE = require("@/assets/images/home/promo-food.png");
 
 export default function CoverPhoto() {
   const router = useRouter();
-  const { isLoaded, isSignedIn } = useAuth();
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
-
-  if (isLoaded && isSignedIn) {
-    return <Redirect href="/(tabs)" />;
-  }
+  const { draft, patch } = useVendorDraft();
+  const { pickAndUpload, uploading, error } = useImageUpload();
+  const photoUri = draft.coverPhotoUrl;
 
   const goBack = () =>
     router.canGoBack()
       ? router.back()
       : router.replace("/vendor-application/offering-type");
 
-  // Wired once expo-image-picker is added to the project.
-  const onPickPhoto = () => {};
+  // Cover photo stays optional — the flow can proceed without one either way.
+  // Aspect must be integers — the native cropper (com.canhub.cropper) floors
+  // fractional values, and a component that floors to 0 crashes the activity.
+  const onPickPhoto = async () => {
+    const url = await pickAndUpload({ aspect: [86, 100] });
+    if (url) patch({ coverPhotoUrl: url });
+  };
 
   return (
     <View className="flex-1 bg-white">
@@ -48,12 +50,12 @@ export default function CoverPhoto() {
             className="mt-2 font-inter-semibold"
             style={{ fontSize: 15, color: "#8A8A8A" }}
           >
-            Step 3 of 7
+            Step 3 of 5
           </Text>
           <View className="mt-2.5 h-[6px] w-full overflow-hidden rounded-full bg-[#EDE8E1]">
             <View
               className="h-full rounded-full"
-              style={{ width: "42.9%", backgroundColor: ORANGE }}
+              style={{ width: "60%", backgroundColor: ORANGE }}
             />
           </View>
 
@@ -67,6 +69,7 @@ export default function CoverPhoto() {
           {/* Upload area */}
           <Pressable
             onPress={onPickPhoto}
+            disabled={uploading}
             className="mt-8 w-full overflow-hidden rounded-[26px] bg-[#EFEAE3]"
             style={{ aspectRatio: 0.86 }}
           >
@@ -89,7 +92,11 @@ export default function CoverPhoto() {
                   elevation: 10,
                 }}
               >
-                <Ionicons name="camera" size={44} color="#4A3527" />
+                {uploading ? (
+                  <ActivityIndicator color="#4A3527" />
+                ) : (
+                  <Ionicons name="camera" size={44} color="#4A3527" />
+                )}
               </View>
             </View>
           </Pressable>
@@ -99,10 +106,14 @@ export default function CoverPhoto() {
               className="text-center font-inter-bold"
               style={{ fontSize: 22, color: HEADING }}
             >
-              {photoUri ? "Change cover photo" : "Upload a cover photo"}
+              {uploading
+                ? "Uploading…"
+                : photoUri
+                  ? "Change cover photo"
+                  : "Upload a cover photo"}
             </Text>
             <Text className="mt-2 text-center text-[15px] font-inter-regular text-[#9A948B]">
-              JPG or PNG, up to 5MB
+              {error ?? "JPG or PNG, up to 5MB"}
             </Text>
           </View>
         </View>
@@ -111,10 +122,12 @@ export default function CoverPhoto() {
         <View className="px-6 pb-7 pt-3">
           <Pressable
             onPress={() =>
-              router.push("/vendor-application/kyc" as never)
+              router.push("/vendor-application/bank-details" as never)
             }
+            disabled={uploading}
             className="overflow-hidden rounded-[28px]"
             style={{
+              opacity: uploading ? 0.6 : 1,
               shadowColor: ORANGE,
               shadowOffset: { width: 0, height: 8 },
               shadowOpacity: 0.28,

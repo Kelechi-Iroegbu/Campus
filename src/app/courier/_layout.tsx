@@ -1,9 +1,24 @@
+import { View } from "react-native";
+import { Redirect } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { useSession } from "@/lib/session";
 
 const INACTIVE = "#8A8A8A";
 const ACTIVE = "#F0531E";
 
 export default function CourierTabsLayout() {
+  const { loading, me } = useSession();
+  const vendor = me?.vendor ?? null;
+
+  if (loading) return <View style={{ flex: 1, backgroundColor: "#FFFFFF" }} />;
+  if (!vendor || vendor.offeringType !== "courier") {
+    return <Redirect href="/(tabs)" />;
+  }
+  if (vendor.status !== "approved") {
+    return <Redirect href="/vendor-application/pending" />;
+  }
+  if (me?.activeRole !== "vendor") return <Redirect href="/(tabs)" />;
+
   return (
     <NativeTabs
       backgroundColor="#FFFFFF"

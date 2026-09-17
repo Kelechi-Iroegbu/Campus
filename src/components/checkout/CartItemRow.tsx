@@ -1,4 +1,5 @@
-import { Image, Pressable, Text, View } from "react-native";
+import { Image, ImageSourcePropType, Pressable, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { TEXT_DARK, TEXT_GRAY } from "../vendor/theme";
 
 export type CartLine = {
@@ -7,7 +8,7 @@ export type CartLine = {
   vendorName: string;
   category: string;
   price: number;
-  image: number;
+  image: ImageSourcePropType;
   quantity: number;
 };
 
@@ -63,11 +64,13 @@ export function CartItemRow({
   line,
   onIncrement,
   onDecrement,
+  onRemove,
   scale = 1,
 }: {
   line: CartLine;
   onIncrement: () => void;
   onDecrement: () => void;
+  onRemove?: () => void;
   scale?: number;
 }) {
   return (
@@ -99,6 +102,11 @@ export function CartItemRow({
           {formatNaira(line.price)}
         </Text>
       </View>
+      {onRemove ? (
+        <Pressable onPress={onRemove} hitSlop={8}>
+          <Ionicons name="trash-outline" size={18 * scale} color="#B8AC9C" />
+        </Pressable>
+      ) : null}
       <QuantityStepper quantity={line.quantity} onIncrement={onIncrement} onDecrement={onDecrement} />
     </View>
   );

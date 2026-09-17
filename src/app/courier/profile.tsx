@@ -1,11 +1,22 @@
-import { Alert, Image, Pressable, ScrollView, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useRouter } from "expo-router";
-import { useAuth } from "@clerk/expo";
 import { setOnline, useCourierStore } from "@/data/courier";
 import { GREEN, HEADING, ORANGE, SCREEN_BG, SUBTLE } from "@/components/courier/theme";
+import { useApi } from "@/lib/api";
+import { useSession } from "@/lib/session";
+import { useImageUpload } from "@/lib/useImageUpload";
+import { useSignOut } from "@/lib/useSignOut";
 
 const BLUE = "#3E7BD6";
 
@@ -47,25 +58,35 @@ function Row({
 
 export default function CourierProfile() {
   const router = useRouter();
-  const { signOut } = useAuth();
+  const signOut = useSignOut();
   const { online } = useCourierStore();
+  const api = useApi();
+  const { me, refetch, switchRole } = useSession();
+  const { pickAndUpload, uploading, error: uploadError } = useImageUpload();
+
+  const onEditPhoto = async () => {
+    const url = await pickAndUpload({ aspect: [1, 1] });
+    if (!url) {
+      if (uploadError) Alert.alert("Couldn't upload photo", uploadError);
+      return;
+    }
+    try {
+      const res = await api("/api/me", {
+        method: "PATCH",
+        body: JSON.stringify({ image: url }),
+      });
+      if (!res.ok) throw new Error(`me ${res.status}`);
+      await refetch();
+    } catch (err) {
+      Alert.alert("Couldn't update photo", "Please try again.");
+      console.error("Failed to update courier photo", err);
+    }
+  };
 
   const logout = () => {
     Alert.alert("Log out?", "You'll need to sign in again to go online.", [
       { text: "Cancel", style: "cancel" },
-      {
-        text: "Log out",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await signOut();
-            await new Promise((r) => setTimeout(r, 50));
-            router.replace("/sign-in");
-          } catch (err) {
-            console.error("Sign out error", err);
-          }
-        },
-      },
+      { text: "Log out", style: "destructive", onPress: () => void signOut() },
     ]);
   };
 
@@ -88,11 +109,27 @@ export default function CourierProfile() {
 
           <View className="mt-5 rounded-2xl p-4" style={cardStyle}>
             <View className="flex-row items-center gap-4">
-              <Image
-                source={require("@/assets/images/vendor/food-efo-riro.png")}
-                style={{ width: 60, height: 60, borderRadius: 18 }}
-                resizeMode="cover"
-              />
+              <Pressable onPress={onEditPhoto} disabled={uploading} className="relative">
+                <Image
+                  source={
+                    me?.profile?.image
+                      ? { uri: me.profile.image }
+                      : require("@/assets/images/vendor/food-efo-riro.png")
+                  }
+                  style={{ width: 60, height: 60, borderRadius: 18 }}
+                  resizeMode="cover"
+                />
+                <View
+                  className="absolute -bottom-1 -right-1 h-6 w-6 items-center justify-center rounded-full border-2 border-white"
+                  style={{ backgroundColor: ORANGE }}
+                >
+                  {uploading ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Ionicons name="camera" size={12} color="#FFFFFF" />
+                  )}
+                </View>
+              </Pressable>
               <View className="flex-1">
                 <Text
                   className="font-inter-bold"
@@ -183,7 +220,14 @@ export default function CourierProfile() {
             <Row
               icon="swap-horizontal-outline"
               label="Switch to student mode"
-              onPress={() => router.replace("/(tabs)")}
+              onPress={async () => {
+                const result = await switchRole("student");
+                if (!result.ok) {
+                  Alert.alert("Couldn't switch", result.error);
+                  return;
+                }
+                router.replace("/(tabs)");
+              }}
             />
           </View>
 
