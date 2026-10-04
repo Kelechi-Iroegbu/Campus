@@ -3,13 +3,14 @@ import { db } from "@/db";
 import { dbPool } from "@/db/pool";
 import { paymentMethods } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * PATCH  /api/payment-methods/[id]   — set as default. Body: { isDefault: true }.
  * DELETE /api/payment-methods/[id]   — remove a saved card (owner-only).
  */
 
-export async function PATCH(request: Request, { id }: Record<string, string>) {
+export const PATCH = withApi(async (request: Request, { id }: Record<string, string>) => {
   let user;
   try {
     user = await requireUser(request);
@@ -46,9 +47,9 @@ export async function PATCH(request: Request, { id }: Record<string, string>) {
   });
 
   return Response.json({ ok: true });
-}
+});
 
-export async function DELETE(request: Request, { id }: Record<string, string>) {
+export const DELETE = withApi(async (request: Request, { id }: Record<string, string>) => {
   let user;
   try {
     user = await requireUser(request);
@@ -66,4 +67,4 @@ export async function DELETE(request: Request, { id }: Record<string, string>) {
   await db.delete(paymentMethods).where(eq(paymentMethods.id, id));
 
   return Response.json({ ok: true });
-}
+});

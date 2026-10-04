@@ -1,9 +1,10 @@
 import { asc } from "drizzle-orm";
 import { db } from "@/db";
 import { universities } from "@/db/schema";
+import { withApi } from "@/lib/apiHandler";
 
 /** GET /api/universities — reference list for student onboarding. Public. */
-export async function GET() {
+export const GET = withApi(async () => {
   const rows = await db
     .select({
       id: universities.id,
@@ -14,4 +15,4 @@ export async function GET() {
     .orderBy(asc(universities.name));
 
   return Response.json({ universities: rows });
-}
+});

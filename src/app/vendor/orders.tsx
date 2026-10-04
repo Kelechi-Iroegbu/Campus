@@ -8,6 +8,7 @@ import { Stack, useFocusEffect } from "expo-router";
 import { useApi } from "@/lib/api";
 import { useVendorCopy, useVendorMode } from "@/lib/vendorMode";
 import { format12, formatDayLong, formatNaira, watLocalFromIso } from "@/lib/booking";
+import { ListState } from "@/components/ListState";
 
 // --- shared with src/app/vendor/dashboard.tsx so the vendor tabs are uniform ---
 const CHARCOAL = "#14142B"; // HEADING
@@ -73,8 +74,10 @@ function ProductOrders() {
   const api = useApi();
   const [orders, setOrders] = useState<Order[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [ordersError, setOrdersError] = useState(false);
 
   const load = useCallback(async () => {
+    setOrdersError(false);
     try {
       const res = await api("/api/vendor/orders");
       if (!res.ok) return;
@@ -82,6 +85,7 @@ function ProductOrders() {
       setOrders((j.orders ?? []).filter((o) => o.status !== "completed" && o.status !== "cancelled"));
     } catch {
       // keep showing whatever was last loaded
+      setOrdersError(true);
     }
   }, [api]);
 
@@ -126,7 +130,13 @@ function ProductOrders() {
             {copy.ordersTitle}
           </Text>
 
-          {orders.length === 0 ? (
+          {ordersError && orders.length === 0 ? (
+            <ListState
+              variant="error"
+              title="Couldn't load orders. Check your connection and try again."
+              onRetry={load}
+            />
+          ) : orders.length === 0 ? (
             <View className="mt-24 items-center px-8">
               <Ionicons name="receipt-outline" size={44} color="#C9C2B8" />
               <Text
@@ -261,11 +271,13 @@ function ServiceBookings() {
   const api = useApi();
   const [rows, setRows] = useState<AppointmentRow[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [rowsError, setRowsError] = useState(false);
   // Refreshed alongside `rows` (not read via `Date.now()` at render time) so
   // the past-start/past-end action gating below stays a pure render.
   const [now, setNow] = useState(() => Date.now());
 
   const load = useCallback(async () => {
+    setRowsError(false);
     try {
       const res = await api("/api/vendor/appointments");
       if (!res.ok) return;
@@ -277,6 +289,7 @@ function ServiceBookings() {
       setNow(Date.now());
     } catch {
       // keep showing whatever was last loaded
+      setRowsError(true);
     }
   }, [api]);
 
@@ -345,7 +358,13 @@ function ServiceBookings() {
             {copy.ordersTitle}
           </Text>
 
-          {rows.length === 0 ? (
+          {rowsError && rows.length === 0 ? (
+            <ListState
+              variant="error"
+              title="Couldn't load bookings. Check your connection and try again."
+              onRetry={load}
+            />
+          ) : rows.length === 0 ? (
             <View className="mt-24 items-center px-8">
               <Ionicons name="calendar-outline" size={44} color="#C9C2B8" />
               <Text

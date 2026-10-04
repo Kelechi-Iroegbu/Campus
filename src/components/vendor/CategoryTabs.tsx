@@ -1,5 +1,6 @@
 import { Pressable, ScrollView, Text } from "react-native";
 import { ORANGE } from "./theme";
+import { useTheme } from "@/lib/theme";
 
 export function CategoryTabs({
   categories,
@@ -10,6 +11,7 @@ export function CategoryTabs({
   active: string;
   onChange: (category: string) => void;
 }) {
+  const { t } = useTheme();
   return (
     <ScrollView
       horizontal
@@ -27,14 +29,14 @@ export function CategoryTabs({
             style={{
               paddingHorizontal: 16,
               paddingVertical: 9,
-              backgroundColor: isActive ? ORANGE : "#FFFFFF",
+              backgroundColor: isActive ? ORANGE : t("#FFFFFF"),
               borderWidth: isActive ? 0 : 1,
-              borderColor: "#E7E7E7",
+              borderColor: t("#E7E7E7"),
             }}
           >
             <Text
               className="text-[10px] font-inter-semibold"
-              style={{ color: isActive ? "#FFFFFF" : "#111111" }}
+              style={{ color: isActive ? "#FFFFFF" : t("#111111") }}
             >
               {cat}
             </Text>

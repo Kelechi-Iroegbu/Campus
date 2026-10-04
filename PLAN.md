@@ -867,124 +867,518 @@ scheduled end has passed, and both cancel and no-show refund in full.
 
 ## 7. Vendor payouts, generalized (Milestone 7)
 
-_UI shells built (mock-backed, `src/data/vendorWallet.ts`): `vendor/wallet/`
-(`index` + `all`) and the courier wallet `courier/wallet/` (`index` + `all`).
-No transfer/recipient code, no payout API, no `recipient_code` column._
+_**Backend + vendor UI built for real, `npx tsc` + `eslint` clean** — done in
+a prior session (files dated 2026-09-17) whose completion never got recorded
+here; reconciled 2026-09-18 by reading the actual code rather than trusting
+this checklist. Courier payout stays intentionally stubbed
+("isn't wired up yet" in `courier/wallet/index.tsx`) — deferred to Milestone
+8 per the design, not an oversight. Not yet live-verified against a real
+device + real Paystack test transfer._
 
-- [ ] Build Paystack transfer recipient creation (on approval or first payout
-      request), store `recipient_code` on `vendor_profiles`
-- [ ] Build `api/vendor/payout+api.ts` (atomic conditional wallet debit, emits
-      Inngest event) — works for product/service `kind='vendor'` wallets now;
-      courier wallets exercised in milestone 8
-- [ ] Build `lib/inngest/functions/payouts.ts` (batches payout events, calls
-      Paystack Transfer API)
-- [ ] Handle `transfer.success` / `transfer.failed` / `transfer.reversed` webhooks
-      (update `paystack_transactions`, credit wallet back on failure/reversal)
-- [x] Build `(vendor)/wallet/index.tsx`, `(vendor)/wallet/payout.tsx`
-      — `vendor/wallet/index.tsx` + `all.tsx` UI shells built (mock-backed).
-      Real: still needs the `payout.tsx` request screen + the payout API.
-- [ ] Note: enable "disable OTP for transfers" in Paystack dashboard before this
-      can run unattended
-- [ ] Verify: payout request debits wallet immediately, Inngest batches + calls
-      Paystack, webhook updates status correctly, reversal credits wallet back
+- [x] Paystack transfer recipient creation — `ensureTransferRecipient()`
+      (`src/lib/payout.ts`), called lazily on first payout request. Resolves
+      the account number via Paystack first and uses Paystack's own verified
+      name (not the vendor-typed one) for the recipient; stores
+      `paystackRecipientCode` on `vendor_profiles`.
+- [x] `api/vendor/payout+api.ts` — GET (balance/fee/net preview + eligibility)
+      and POST (`requestPayout()` in `src/lib/payout.ts`: atomic full-balance
+      debit + pending `paystack_transactions` row in one `dbPool`
+      transaction, then emits `vendor/payout.requested`). Always sweeps the
+      full balance — no partial withdrawal, confirmed design. Works for
+      product/service `kind='vendor'` wallets now; courier wallets wired the
+      same way but exercised in milestone 8.
+- [x] `src/inngest/payouts.ts` — `processVendorPayout`: on
+      `vendor/payout.requested`, calls Paystack's Transfer API. An error here
+      is reconciled against Paystack directly (`verifyTransfer`) before being
+      treated as a real failure, since a transfer reference can't be safely
+      retried blind. `onFailure` (once retries are exhausted) refunds the
+      wallet via the same `refundFailedPayout()` the webhook path uses.
+- [x] `transfer.success` / `transfer.failed` / `transfer.reversed` webhooks —
+      handled in `api/webhooks/paystack+api.ts`; failure/reversal share
+      `refundFailedPayout()`'s idempotent credit with the Inngest `onFailure`
+      path, so whichever fires first wins and neither double-refunds.
+- [x] Build `(vendor)/wallet/index.tsx`, `(vendor)/wallet/payout.tsx` — both
+      real, wired to `/api/vendor/wallet` and `/api/vendor/payout` (not mock
+      data).
+- [ ] Manual step (user, not code): enable "disable OTP for transfers" in the
+      Paystack dashboard before a transfer can go through unattended.
+- [x] **New 2026-09-18: `api/vendor/bank-details+api.ts` + a real
+      `vendor/profile/bank-details.tsx` edit screen.** Found live during
+      verify: the "Payout account" row in the vendor profile was a fully
+      static mock ("GTBank ••4821", no `onPress`) — there was no way for a
+      vendor to fix bad bank details after their initial application, which
+      is exactly what blocked the very first payout test (a fake account
+      number entered at application time, unresolvable by Paystack, with no
+      edit path). The new endpoint live-resolves the account via Paystack
+      before saving (using Paystack's own verified name, not a typed one)
+      and clears any stale `paystackRecipientCode` on change. **Also found
+      and fixed live**: the screen was originally added as a flat sibling
+      file directly under `vendor/` (next to `vendor/_layout.tsx`'s
+      `NativeTabs`) and was untappable — `NativeTabs` only makes routes
+      navigable when they live inside a tab's own nested `Stack` (as
+      `vendor/wallet/` already does with its own `_layout.tsx`), not as bare
+      siblings of the tabs layout itself. Fixed by converting `profile` from
+      a flat file into a folder (`vendor/profile/_layout.tsx` +
+      `index.tsx` + `bank-details.tsx`), mirroring `wallet/`'s structure —
+      same fix would be needed for any other new push screen off a
+      `NativeTabs`-based shell (vendor, courier, admin all use it).
+- [x] **Partial live verify — 2026-09-18, real device + real Paystack API
+      calls.** Bank-details editing confirmed for real: entered a real
+      account number for the "Nails" service vendor (Access Bank), Paystack
+      resolved and returned the genuine account holder's name
+      ("SOCHIKAMSO BONTE EGBE") rather than anything typed — confirmed via
+      DB read, not just the UI. Recipient creation confirmed directly
+      against Paystack's API for the same account (real `recipient_code`
+      returned). **Blocked mid-test**: `POST /api/vendor/payout` re-resolves
+      the account a second time inside `ensureTransferRecipient()` (by
+      design, since it only trusts `paystackRecipientCode` once already
+      set) — this second resolve hit Paystack's test-mode cap of **3 live
+      bank resolves per day**, exhausted today between the original fake
+      number, the fix's own diagnostic calls, and the real save. Confirmed
+      via direct Paystack API call — genuine quota message, not an app bug.
+      Paystack's suggested workaround (test bank code `001`) isn't in the
+      real bank list our picker uses, so it can't be reached without adding
+      a fake entry to production bank data — not done. **Deferred to
+      tomorrow** (quota resets daily) rather than seeding a shortcut
+      recipient code: full remaining verify — wallet debit on request,
+      Inngest `processVendorPayout` firing, transfer initiation reaching
+      Paystack — still needs a real device + the OTP dashboard toggle (still
+      pending, user doesn't have Paystack dashboard access yet either).
 
 ## 8. Courier + delivery marketplace (Milestone 8)
 
-_UI shells built (mock-backed, `src/data/courier.ts`): the dedicated
-top-level `src/app/courier/` shell — `dashboard.tsx`, `deliveries.tsx`,
-`profile.tsx`, `wallet/` (`index` + `all`) — plus `components/courier/*`
-(`RequestCard`, `ActiveDeliveryCard`). Marking a delivery delivered updates
-the in-memory stats + wallet ledger for the session. This **replaces** the
-Milestone 8 plan of `(vendor)/jobs/` + `(vendor)/deliveries/` tabs under the
-vendor group (see Revision note (4)). No `delivery_jobs` schema/API, no
-`send-delivery.tsx` errand screen._
+_**Built for real 2026-09-18**, `npx tsc` + `eslint` clean throughout. The
+`delivery_jobs` table already existed in full from Milestone 1 — no schema
+migration needed beyond one new `wallet_txn_reason` enum pair
+(`delivery_payment`/`delivery_refund`, mirroring `order_payment`/
+`order_refund`). `src/lib/deliveryJobs.ts` mirrors `orders.ts`/
+`appointments.ts`'s no-op-safe lifecycle-function shape exactly. Not yet
+live-verified against a real device — see the Verify item below._
 
-Two ways a `delivery_jobs` row can now come into existence — build both, since
-they share almost all downstream mechanics (claim, pickup, delivery, payout):
-**(a) order-sourced** (existing design: spawned from a product order placed
-with `fulfillment_type='delivery'`) and **(b) errand-sourced** (new: a student
-requests a courier directly from Home for an arbitrary pickup/dropoff task, no
-vendor or order involved).
+Two ways a `delivery_jobs` row now comes into existence, sharing every
+downstream mechanic identically: **(a) order-sourced** (a product order
+placed with `fulfillment_type='delivery'`) and **(b) errand-sourced** (a
+student requests a courier directly from Home, no vendor/order involved).
 
 **Order-sourced delivery**
-- [ ] Add real `fulfillment_type: 'delivery'` option to student checkout
-- [ ] Build `delivery_jobs` row creation at order placement (`source='order'`,
-      status `awaiting_vendor`, `dropoff_note` copied from checkout input) when
-      `fulfillment_type='delivery'`
-- [ ] Wire `orders/[id]/accept` to flip the linked `delivery_jobs.status` to
-      `open`
+- [x] Real `fulfillment_type: 'delivery'` option in student checkout —
+      `checkout.tsx` gained a Pickup/Delivery toggle + dropoff-note field
+      (state lives in `cartStore.ts`, the existing single-source-of-truth for
+      checkout state), `payment.tsx` shows the fee and includes it in the
+      `POST /api/orders` body.
+- [x] `delivery_jobs` row creation at order placement (`source='order'`,
+      status `awaiting_vendor`) — inserted in the same `dbPool.transaction`
+      as the order + order_items, `api/orders+api.ts`. Server-side computes
+      the delivery fee itself (`COURIER_FEE_MINOR`), never trusts a
+      client-sent amount.
+- [x] `api/vendor/orders/[id]/accept+api.ts` flips the linked `delivery_jobs`
+      row from `awaiting_vendor` to `open` right after accepting the order.
 
-**Errand-sourced delivery (standalone "Send a Delivery")**
-- [ ] Build `(student)/send-delivery.tsx` — request form: pickup note, dropoff
-      note, item description, fee display (flat `COURIER_FEE_MINOR`, same
-      constant as order-delivery fees), "Confirm & pay" button
-- [ ] Wire the Home feed's "Send a Delivery" card to open this screen
-- [ ] Build `POST /api/delivery-jobs+api.ts` (student-initiated) — atomically
-      debits the requester's wallet, inserts a `delivery_jobs` row directly as
-      `source='errand'`, `status='open'` (skips `awaiting_vendor` — no vendor
-      prep step to wait on), `requester_profile_id=self`, `vendor_profile_id`
-      and `order_id` both null. Emits `delivery_job/requested` for courier
-      notification.
-- [ ] Build `POST /api/delivery-jobs/[id]/cancel+api.ts` — requester-only,
-      only while `status='open'` (not yet claimed) — refunds the wallet
-- [ ] Build `GET /api/delivery-jobs/requested+api.ts` — a student's own
-      errand requests (active + history)
-- [ ] Build a merged view on `(student)/orders/` (or equivalent) showing both
-      order-tracking and errand-tracking entries together, sorted by recency
+**Errand-sourced delivery ("Send a Delivery")**
+- [x] `send-delivery.tsx` (top-level route, sibling to `checkout.tsx`) —
+      pickup note, dropoff note, item description, flat fee display,
+      "Confirm & pay" → `POST /api/delivery-jobs` → `/deliveries/[id]`.
+- [x] Entry point: a "Send delivery" pill in the Orders tab header
+      (`(tabs)/orders/index.tsx`). It began as a Home feed card, moved
+      2026-09-25 to free Home space for vendor cards; Orders is also where
+      errand requests are listed.
+- [x] `POST /api/delivery-jobs+api.ts` — atomically debits the requester,
+      inserts `source='errand'`, `status='open'` directly (no
+      `awaiting_vendor` step — no vendor prep to wait on).
+- [x] `POST /api/delivery-jobs/[id]/cancel+api.ts` — requester-only, only
+      while `open`, full refund.
+- [x] `GET /api/delivery-jobs/requested+api.ts` — a student's own errand
+      requests.
+- [x] Merged view on `(tabs)/orders/index.tsx` — a new "Deliveries" section
+      alongside the existing Orders/Appointments sections, same polled-list
+      pattern, each row → `/deliveries/[id]`.
+- [x] **New `deliveries/[id].tsx`** (top-level route) — the errand-sourced
+      Requested→Courier assigned→Picked up→Delivered tracker; needed because
+      `(tabs)/orders/[id].tsx` is keyed by an `orders` row that doesn't exist
+      for errands.
 
 **Shared mechanics (both sources)**
-- [ ] Build `api/delivery-jobs+api.ts` GET (open feed, campus-filtered — shows
-      both order- and errand-sourced jobs mixed, couriers don't need to care
-      which) and `api/delivery-jobs/mine+api.ts` (courier's claimed/history)
-- [ ] Build `api/delivery-jobs/[id]/claim+api.ts` (atomic conditional claim —
-      409 if already claimed)
-- [ ] Build `api/delivery-jobs/[id]/picked-up+api.ts`, `.../delivered+api.ts`
-      (credits courier wallet; additionally auto-completes the linked
-      `orders` row **only when `order_id` is present** — errand jobs just
-      finalize + notify the requester directly), `.../fail+api.ts`
-- [x] Build the courier "Deliveries" screen (open job feed + claim, courier
-      only) — UI shell built as `courier/dashboard.tsx` + `courier/deliveries.tsx`
-      in the dedicated `courier/` shell (mock-backed), not a `(vendor)/jobs/` tab
-- [x] Build the courier "My Deliveries" screen (claimed + history, courier
-      only) — covered by the mock-backed `courier/deliveries.tsx` history
-      section, not a separate `(vendor)/deliveries/` tab
-- [ ] Build combined delivery order-status display on
-      `(student)/orders/[id].tsx` for order-sourced deliveries (Placed →
-      Preparing → Finding a courier → Courier assigned → Picked up →
-      Delivered), and a simpler Requested → Courier assigned → Picked up →
-      Delivered tracker for errand-sourced ones
-- [ ] Verify: place a delivery order, vendor accepts → job becomes claimable;
-      separately, request a standalone errand → job is immediately claimable
-      with no vendor-accept step; second courier's claim attempt on an
-      already-claimed job (either source) gets rejected (409); full
-      picked_up→delivered flow credits courier wallet and, for order-sourced
-      jobs only, auto-completes the order; cancel an unclaimed errand and
-      confirm the wallet refund
+- [x] `api/delivery-jobs+api.ts` GET (open feed, campus-filtered, mixes both
+      sources) + `api/delivery-jobs/mine+api.ts` (courier's claimed/history).
+- [x] `api/delivery-jobs/[id]/claim+api.ts` — atomic conditional claim (the
+      `WHERE status='open'` clause is the race guard, same CAS idiom
+      `applyDebit` uses). **Also enforces one active job per courier** — a
+      courier can't claim a second job while carrying one; this was already
+      an assumption baked into the old mock UI's own alert copy
+      ("finish your active delivery..."), now enforced server-side too, not
+      just client-side.
+- [x] `api/delivery-jobs/[id]/picked-up+api.ts`, `.../delivered+api.ts`
+      (credits the courier the delivery fee; for order-sourced jobs,
+      separately — best-effort, no-op-safe — completes the linked order via
+      the existing `completeOrder()`), `.../fail+api.ts` (refunds the
+      requester in full — not explicitly specified in the original
+      checklist, but the only sensible behavior, mirroring how every other
+      terminal-failure path in this app already refunds). **Known gap**: a
+      failed *order-sourced* delivery refunds the delivery fee but doesn't
+      touch the parent order's own status — it stays `accepted` pending
+      manual/support follow-up, matching this file's own pre-existing "Open
+      items" note on unclaimed-job resolution being manual for now.
+- [x] Courier "Deliveries" (open feed + claim) and "My Deliveries"
+      (active + history) — `courier/dashboard.tsx` + `courier/deliveries.tsx`
+      rewired off the mock store onto a new shared `src/lib/
+      useCourierDeliveries.ts` hook (de-duplicates logic that was previously
+      copy-pasted between the two screens). **Real UI gap found and fixed**:
+      the old mock only ever went active→delivered in one tap — there was no
+      "Mark picked up" action anywhere, even though the schema models
+      `claimed → picked_up → delivered` as three distinct steps. Added.
+- [x] Combined delivery tracker on `(tabs)/orders/[id].tsx` — the previously
+      hardcoded 4-step pickup stepper is now one of two variants, switched on
+      whether the enriched `GET /api/orders/[id]` response includes a
+      `deliveryJob`; the 6-step Placed→Preparing→Finding a courier→Courier
+      assigned→Picked up→Delivered version reuses the same stepper-rendering
+      JSX (not hardcoded to 4 steps beyond the array length).
+- [x] **Also found and fixed live, same session**: `courier/profile.tsx`
+      and (previously) `vendor/profile.tsx` both had a fully dead "Payout
+      account" row (no `onPress`, in vendor's case a hardcoded fake value) —
+      same root cause as the M7 bank-details fix. Both are now real,
+      including a courier-specific `courier/profile/bank-details.tsx`
+      (couriers can't reach the vendor one — `vendor/_layout.tsx` redirects
+      any courier account away from `vendor/*` entirely). `courier/wallet/`
+      (`index.tsx`, `all.tsx`, new `payout.tsx`) rewired off the mock onto
+      the same `/api/vendor/wallet` and `/api/vendor/payout` endpoints M7
+      built — both already branch on `offeringType === "courier"` for wallet
+      kind, so no backend changes were needed, only the screens. Both
+      `vendor/profile.tsx` and `courier/profile.tsx` also hardcoded
+      "Mama Ngozi's Kitchen" as the display name regardless of the real
+      vendor — traced to `/api/me` never returning `vendor.displayName` at
+      all; added it there (`src/app/api/me+api.ts`,
+      `src/lib/session.tsx`'s `Me` type) and wired both screens to the
+      real value.
+- [x] **Verify — done 2026-09-18, real device + real money movement throughout.**
+      Order-sourced path fully proven: placed a delivery order (Sochi foods,
+      "Dioma" ₦5,000) with a real dropoff note — student debited exactly
+      ₦5,400 (subtotal + ₦100 platform fee + ₦300 delivery fee) in one
+      transaction, a linked `delivery_jobs` row created atomically as
+      `awaiting_vendor`. Vendor accepted → job flipped to `open`. Courier
+      ("Kelly") claimed → `claimed`, correctly attributed. Marked picked up,
+      then delivered.
+      **Found and fixed a real bug live here**: `markPickedUp` never moved
+      the parent order past `accepted`, so the existing `completeOrder()`
+      call on delivery (guarded on `status === "ready"`) was silently
+      no-op'ing — an order-sourced delivery order would have sat at
+      `accepted` forever, vendor never paid. Fixed in
+      `src/lib/deliveryJobs.ts`: `markPickedUp` now flips the linked order
+      to `ready` first (the delivery equivalent of "ready for collection" —
+      here collected by the courier instead of the student), so
+      `completeOrder()` has a real `ready` order to act on once delivered.
+      Repaired the in-flight test order by running the corrected logic
+      directly against it (mirroring the M4/M6 precedent for this) rather
+      than leaving it stuck — confirmed after: order `completed`, vendor
+      credited exactly ₦5,000 (subtotal only, fee withheld correctly),
+      courier credited exactly ₦300 `courier_earning`.
+      **Also observed, not a bug**: a "couldn't mark picked up" error
+      flashed transiently mid-test, but the final DB state showed clean
+      single `pickedUpAt`/`deliveredAt` timestamps with no duplication —
+      consistent with the no-op-safe guard correctly rejecting a
+      double-tap/poll-race retry rather than any data inconsistency.
+      **Errand-sourced path also proven**: requested via Send a Delivery
+      (pickup/dropoff/item notes) — debited ₦300 immediately, `open` status
+      with no `awaiting_vendor` step. Cancelled while unclaimed — refunded
+      the full ₦300, one clean credit/debit pair.
+      **Found a second real gap mid-test**: the two new `wallet_txn_reason`
+      enum values (`delivery_payment`/`delivery_refund`) were added to
+      `schema.ts` but never pushed to the live Neon DB — the first errand
+      request failed with a real Postgres error (enum value doesn't exist).
+      Fixed by running `npm run db:push`; confirmed the failed attempt had
+      rolled back cleanly (no orphaned job or wallet row) and the retry
+      succeeded normally.
+      **Claim-race (409) and fail-path verified via direct concurrent
+      function calls** against the real `claimDeliveryJob`/`failDeliveryJob`
+      logic (same technique M6 used for its double-booking guard) rather
+      than two live device sessions, since racing two real taps on one
+      phone isn't practically testable: two couriers ("Kelly",
+      "Delivery guy") both called `claimDeliveryJob` on the same open job
+      via `Promise.all` — exactly one succeeded, the other got a clean
+      `already_claimed` rejection, confirmed against the DB (only one
+      `claimedByVendorProfileId` recorded). Then `failDeliveryJob` on that
+      claimed job refunded the requester the full delivery fee, one clean
+      credit row with the correct reason/reference.
+      **Also discovered, unrelated to M8 itself but relevant going
+      forward**: `kiroegbu@gmail.com` resolves to **three** separate
+      `profiles` rows (from historical Clerk account deletion/recreation,
+      already flagged in Revision note (3)) — a DB query filtered only by
+      email rather than a specific `profiles.id` can silently hit the wrong
+      one. Caused a false alarm mid-verify (a balance check that looked
+      like a missing refund was actually just reading a different
+      duplicate profile's wallet) — worth remembering for any future
+      direct-DB verification against this account.
 
 ## 9. Notifications polish (Milestone 9)
-- [ ] Build push token registration flow (`push_tokens` table, prompt on
-      first relevant screen)
-- [ ] Wire remaining event notifications (order placed/accepted/ready/completed/
-      cancelled, appointment booked/confirmed/reminders/cancelled/no-show,
-      delivery job open/claimed/picked-up/delivered for both order- and
-      errand-sourced jobs, payout processed)
-- [ ] Build denied-permission fallback copy/UI
+
+_**Built 2026-09-19**, `npx tsc` + `eslint` clean. An audit before starting
+found the second checklist item was **already almost entirely done** — every
+lifecycle route built across M2/M5/M6/M7/M8 already called
+`sendPushToProfile`, just silently as a no-op since no token ever existed.
+Real remaining scope was narrower: the registration flow itself, one genuine
+lifecycle gap, and the fallback UI. **Not yet live-verified against a real
+device — needs a dev-client rebuild first, see below.**_
+
+- [x] Push token registration flow — new `api/push-tokens+api.ts` (`POST`
+      upserts on `push_tokens.token`'s unique constraint, re-homing
+      `profileId` if the same physical device later signs into a different
+      account; `DELETE` for sign-out cleanup). New `src/lib/pushNotifications.ts`
+      (`registerForPushNotificationsAsync`, `expo-notifications` +
+      `expo-device` + `expo-constants`). Hooked into `SessionProvider`
+      (`src/lib/session.tsx`) via an effect keyed on `me.profile.id`
+      (not a one-shot "ever ran" flag — `SessionProvider` never unmounts
+      across a sign-out→sign-in on one device, so a one-shot flag would
+      silently stop registering after the first account). `useSignOut.ts`
+      best-effort unregisters the token first (self-heals via the upsert
+      either way if that call fails).
+- [x] Wired the one real remaining gap: delivery-job `open` never notified
+      any courier. New `notifyAvailableCouriers()` (`src/lib/deliveryJobs.ts`)
+      pushes every approved, on-duty, same-campus courier — matches the
+      exact eligibility gate the open-jobs feed itself already uses. Called
+      from errand creation (`api/delivery-jobs+api.ts`) and from the
+      vendor-accept `awaiting_vendor→open` flip (`api/vendor/orders/[id]/accept+api.ts`,
+      which needed a `.returning()` added to that update to even know
+      whether a row was actually flipped — it had none before).
+      **Also added**: `sendPushToProfiles()` (batch variant) in
+      `src/lib/push.ts`, and a stale-token cleanup — both push functions now
+      inspect Expo's per-message ticket response and call the
+      already-existing (previously unused) `removeTokens()` on
+      `DeviceNotRegistered`, closing out that function's own "called from a
+      sweep later" comment instead of shipping a second half-wired path.
+- [x] Denied-permission fallback UI — `(tabs)/profile/notifications.tsx`
+      (previously a `ComingSoonScreen` stub) now re-checks permission status
+      on focus and shows real copy + a `Linking.openSettings()` button when
+      denied, or a confirmation state when granted.
+- [x] `app.json` — added the `expo-notifications` config plugin (using the
+      existing monochrome Android icon, not the colored splash icon — Android
+      renders notification icons as a flat silhouette).
+- [x] **Manual step (user):** `npx expo run:android` dev-client rebuild —
+      done 2026-09-19.
+- [x] Live-device verify, done 2026-09-19: `push_tokens` row confirmed
+      appearing/updating on sign-in; denied-permission screen + `Open
+      Settings` deep link both confirmed live (revoked/re-granted the OS
+      permission and watched the screen react on focus); an appointment
+      `confirm` lifecycle push confirmed actually arriving in the system
+      tray. Account-switch re-homing and the courier open-job broadcast
+      targeting were verified at the DB level — a same-token upsert with a
+      different `profileId` correctly re-homes the existing row (confirmed:
+      same row id, `profileId` reassigned, `updatedAt` bumped, no duplicate
+      inserted, matching `push-tokens+api.ts`'s `onConflictDoUpdate` exactly),
+      and `notifyAvailableCouriers()`'s targeting query, run directly against
+      real courier rows with two of three toggled off-duty, correctly
+      returned only the on-duty one. Live-arrival for that specific path
+      (via the real `POST /api/delivery-jobs` route rather than a raw Expo
+      API call) was not completed — the session's wireless-debugging
+      connection to the test device became too unstable to finish driving
+      the "Send a Delivery" form (repeated disconnects requiring re-pairing,
+      the phone's screen locking mid-session, stray taps once triggering
+      React Native's dev-mode element inspector). Not considered a real risk
+      given the two halves (delivery mechanism, targeting query) were each
+      independently confirmed correct. Two real bugs found and fixed along
+      the way:
+      - The notification bell icons on the vendor dashboard/wallet and
+        courier dashboard/wallet, plus the "Notifications" row in the vendor
+        profile menu, were all still wired to a pre-M9 `Alert.alert("Coming
+        soon"...)` stub instead of the real screen this milestone built —
+        never rewired. Fixed all 5 spots to `router.push("/profile/notifications")`.
+      - **The bigger one**: no push notification was actually reaching any
+        Android device — Expo's push API was rejecting every send with
+        `InvalidCredentials: Unable to retrieve the FCM server key`, because
+        this EAS project never had FCM push credentials configured at all.
+        Fixed by generating a Firebase service-account key (Google deprecated
+        the old single "server key" in favor of FCM V1 service accounts) and
+        uploading it via `eas credentials` → Android → Google Service Account
+        → set up for Push Notifications (FCM V1). A first attempt uploaded it
+        to the wrong slot (**Push Notifications (Legacy)**, which still shows
+        an unused legacy key in the credentials list — harmless, just dead
+        weight). Also fixed `src/lib/push.ts`'s `sendToTokenRows`: it only
+        checked the HTTP status of the Expo API call, not each message's own
+        ticket status, so a credential failure like this was being silently
+        counted as "sent" with zero log output. It now logs ticket-level
+        errors and excludes them from the returned `sent` count.
+      - **Incident during this verify session**: a stray automated tap on
+        the vendor wallet screen accidentally triggered a real `POST
+        /api/vendor/payouts` withdrawal (test-mode Paystack key, so no real
+        funds moved — confirmed directly against Paystack's API, transfer
+        status `abandoned`, never completed). Left the local vendor wallet
+        incorrectly debited to ₦0 since the dev server has no public
+        webhook URL for Paystack's `transfer.failed` event to self-heal it.
+        Corrected manually by replicating `refundFailedPayout()`
+        (`src/lib/payout.ts`) by hand: `paystack_transactions` row marked
+        `failed`, wallet credited back via a `payout_reversal` ledger entry —
+        same effect the real webhook would have produced. Worth remembering
+        for any future device-automation session: the vendor wallet's
+        Withdraw button is a real, live Paystack transfer call even in this
+        dev build, not a mock.
+
+## App-wide audit: dead buttons, mock data, real profile editing (2026-09-18)
+
+_Cross-cutting pass across every screen, not tied to one milestone — a full
+audit (3 parallel agents covering student/vendor/courier) found this
+session's earlier bug pattern (decorative buttons with no `onPress`, screens
+still rendering hardcoded arrays instead of calling `useApi()`) repeated
+throughout the app. All confirmed findings fixed; `npx tsc` + `eslint` clean
+throughout, matching this session's established bar._
+
+**Wired dead buttons** to real destinations/data (no new backend needed):
+student profile (real name/handle/order-count/wallet-balance, removed a
+non-functional dark-mode toggle), wallet home + wallet history (both were
+discarding or never fetching the real `GET /api/wallet/transactions`
+response), Explore's "Become a Vendor" button, vendor profile's
+Notifications/Help & Support/settings rows, vendor dashboard (real business
+name — the "Mama Ngozi's Kitchen" bug from earlier this session, missed in
+that pass — plus real wallet balance and real recent-orders/bookings, no
+longer fake arrays), courier profile's Help & Support, and four
+notification-bell icons that weren't even wrapped in a `Pressable` (vendor
+dashboard/wallet, courier dashboard/wallet) — all four point at the existing
+`/profile/notifications` stub, since a real notification feed is Milestone 9
+scope, not this pass.
+
+**Removed features that contradicted existing design** rather than wiring
+them to something fake: "Fund wallet" buttons on the vendor dashboard and
+wallet screen (vendor/courier wallets are earned-only in this app's money
+model — `PLATFORM_FEE_MINOR`/`courier_earning`/`payout`, no top-up concept;
+the button was a copy-paste leftover from the student wallet template, and
+`POST /api/wallet/topup` only ever credits the student wallet regardless of
+caller). Removed "Where are you?" location pickers on two Explore screens —
+this is a single-campus pilot with no campus picker anywhere by design
+(Revision note 5).
+
+**Replaced remaining mock data** with real `GET /api/vendors` calls: Explore
+home (dropped the fake "Near You" campus-zone section entirely — no backing
+data model), Explore Search's idle-state "Trending" list (dropped the
+`src/data/vendors.ts` import, now deleted — nothing else referenced it),
+Explore Nearby (dropped fake distance/ETA/rating figures no backend
+supports; "Open Now" now really filters by `isOpen`, which
+`api/vendors+api.ts` didn't select before). Explore Search's "Recent
+Searches" is real, session-scoped search history (an in-memory list, not a
+hardcoded one). **Correction, 2026-09-19**: this was originally built against
+`@react-native-async-storage/async-storage` for real persistence across app
+restarts — installed via `npx expo install`, which only updates the JS/
+package side. The already-built dev client on the test device had never been
+rebuilt with that native module linked in, so the app crashed immediately on
+launch (a native crash, not a JS error screen) the next time it was opened.
+Reverted to the in-memory version and uninstalled the package rather than
+have the user rebuild the dev client for a minor convenience feature — a
+reminder that any future native dependency needs `npx expo run:android`
+(or an EAS build) before it'll actually work on a device with an existing
+dev-client install, not just `expo install` + a Metro reload. The dead
+filter icons on Home and Explore Search both open
+the same real type-filter sheet — extracted into
+`src/components/VendorTypeFilterSheet.tsx` so there's one implementation,
+not two.
+
+**Real profile-editing screens** ("built out the functionalities" per the
+application data already captured at vendor-application time): new
+`GET`/`PATCH /api/vendor/profile+api.ts` (business info + KYC docs, any
+offering type/status), `vendor/profile/business-info.tsx`,
+`vendor/profile/verification.tsx` (status + re-uploadable KYC docs),
+`courier/profile/vehicle.tsx`, `courier/profile/verification.tsx`. Repointed
+vendor profile's "Business information"/"Verification" rows and courier
+profile's "Vehicle & coverage area"/"Verification" rows (the latter two
+previously had no `onPress` at all) to these. **Deleted
+`vendor-application/kyc.tsx` and `kyc-business.tsx`** — confirmed
+unreachable once repointed, and actively misleading before that: both were
+local forms that never saved anywhere, and `kyc-business.tsx` was hardcoded
+to fake pre-filled data ("Mama T's Kitchen", a fake email/phone/address) that
+silently discarded whatever the vendor actually typed. This closes out the
+"`(vendor)/profile/edit-application.tsx` not built" item from Milestone 10's
+own checklist above.
+
+**Also fixed while in the area**: the "Popular near you" 4-per-scroll
+pagination on Home was silently breaking depending on which vendor sorted
+first alphabetically — a card's category line was conditionally mounted
+(courier vendors have no category at all), so the single sample card used to
+measure page height didn't always match every other card's real height.
+Fixed by always rendering the line, invisible when absent, so every card is
+a uniform height.
+
+**Correction, 2026-09-19 — real live-device bug found and fixed**: the
+notification-bell and Help & Support/Settings icons on vendor and courier
+screens were wired to `router.push("/profile/notifications")` etc. — real
+screens, but they live under `(tabs)/profile/`, a **different, separate
+top-level navigator** from `vendor/`/`courier/` (each its own `NativeTabs`
+instance). Switching roles `replace`s the whole `(tabs)` navigator in and
+out, and pushing directly into its nested profile Stack from outside it
+(bypassing `(tabs)/profile/index.tsx`) left that Stack corrupted — caught
+live: after visiting a vendor/courier screen's bell icon then switching back
+to student, the Profile **tab** itself got stuck permanently showing the
+notifications stub instead of resetting to the real profile screen when
+tapped. Fixed by reverting all six of these (vendor dashboard/wallet/profile,
+courier dashboard/wallet/profile) to a plain `Alert.alert("Coming soon", …)`
+— they're stubs for genuinely unbuilt features anyway, so there was never a
+good reason to navigate into a different navigator's internal state for
+them. The pre-existing same-navigator uses (the student profile screen's own
+menu rows, and Explore's bell — both already inside `(tabs)`) are unaffected
+and were left as real navigation, since pushing within the same already-
+mounted navigator doesn't have this failure mode.
+
+Live-verified via this exact bug report from the user — the rest of this
+changeset (20+ files) still hasn't had a full deliberate walkthrough beyond
+what this fix required.
 
 ## 10. Hardening (Milestone 10)
-- [ ] Add Sentry error boundaries/breadcrumbs on client screens
-- [ ] Add Sentry capture in every `+api.ts` handler's catch path
-- [ ] Audit every `+api.ts` handler for ownership/authorization checks,
-      including claim/pickup/delivery and appointment endpoints
-- [ ] Fill in empty/error states across all screens
-- [ ] Expand seed data for realistic QA (more vendors of each type,
-      products/services/orders/appointments/deliveries)
-- [ ] Build remaining profile screens: `(student)/profile/favorites.tsx`,
-      `(student)/profile/help.tsx`, `(vendor)/profile/edit-application.tsx`
-      — student profile sub-screens already exist as mock-backed UI shells
-      (`(tabs)/profile/`: `favorites`, `saved-vendors`, `help-support`,
-      `addresses`, `edit-profile`, `notifications`, `settings`,
-      `payment-methods`); `(vendor)/profile/edit-application.tsx` not built
-- [ ] Full end-to-end pass through the verification checklist in the plan file §9
+
+_Built and live-verified 2026-09-20, `npx tsc` + `eslint` clean across the
+whole project (9 pre-existing `react-hooks/set-state-in-effect`/`refs`
+findings remain, all on lines untouched by this milestone — same ones
+flagged out-of-scope in earlier milestones)._
+
+- [x] Add Sentry error boundaries/breadcrumbs on client screens —
+      `Sentry.ErrorBoundary` now wraps the whole app in `src/app/_layout.tsx`
+      with a real fallback UI (`src/components/ErrorFallback.tsx`); breadcrumbs
+      fire centrally on every API call (`src/lib/api.ts`'s `useApi`) and every
+      navigation change (`_layout.tsx`'s `usePathname` effect), so this didn't
+      need touching every screen individually.
+- [x] Add Sentry capture in every `+api.ts` handler's catch path — new
+      `withApi()` wrapper (`src/lib/apiHandler.ts`) applied via codemod to all
+      60 route files (the 61st, `api/inngest+api.ts`, is Inngest's own `serve()`
+      handler and correctly left untouched). Catches any uncaught error,
+      calls `Sentry.captureException`, returns a generic 500 — and its
+      side-effect import of `sentry-server.ts` closes a real gap where most
+      routes never actually initialized Sentry at all (only ones that happened
+      to import `wallet.ts` transitively did).
+- [x] Audit every `+api.ts` handler for ownership/authorization checks — all
+      68 routes reviewed in depth (two research passes); every one correctly
+      scopes data to the caller or restricts to admin. Zero missing-check
+      findings. Additionally hardened `confirmAppointment`/`cancelAppointment`/
+      `noShowAppointment`/`completeAppointment` (`src/lib/appointments.ts`) and
+      `cancelOrder`/`completeOrder` (`src/lib/orders.ts`) with an optional
+      ownership parameter, defense-in-depth against a future caller that skips
+      its own pre-check — every real HTTP call site now passes it.
+- [x] Fill in empty/error states across all screens — new shared
+      `src/components/ListState.tsx` (empty + error variants, error with a
+      retry action); threaded a real `error` flag through 18 screens/hooks
+      that previously collapsed a fetch failure into the same "nothing here"
+      UI as a genuine empty result — preserving the deliberate "keep stale
+      data on a failed background refresh" behavior a few of them already had.
+- [x] Expand seed data for realistic QA — `src/db/seed.ts` now seeds 5
+      additional vendors spanning all three offering types (browsable, not
+      loggable-into — placeholder `clerk_user_id`s), their full catalogs and
+      weekday service availability, plus sample orders/appointments/delivery
+      jobs in varied lifecycle states under a dedicated seed student profile.
+      Confirmed idempotent by running `db:seed` twice against the live DB.
+      Live-verified: seeded vendors and their real availability appear
+      correctly in the student Home feed and booking calendar.
+- [x] Build remaining profile screens — `help-support.tsx` built for real
+      (FAQ + contact) and wired up for student, vendor, and courier (all three
+      previously pointed at dead `Alert.alert` stubs); `favorites.tsx` built
+      end-to-end (`favoriteVendors` table had zero usages before this — added
+      `api/favorites+api.ts` GET/POST, `api/favorites/[vendorId]+api.ts`
+      DELETE, a heart toggle on the vendor storefront screen, and the list
+      screen), live-verified: favoriting a vendor makes it appear in the list.
+      `(vendor)/profile/edit-application.tsx` was **not** built at that literal
+      path — `vendor/_layout.tsx`'s own approval gate redirects any non-approved
+      vendor to `vendor-application/pending.tsx` before they could ever reach
+      it, making a file there permanently unreachable dead code. That screen
+      already has a working "Edit & resubmit" button; its only real gap was
+      restarting the application wizard empty instead of pre-filled, fixed in
+      `src/lib/vendorApplication.tsx` (hydrates the draft from the caller's
+      existing application on mount, a no-op for a first-time applicant).
+- [x] Full end-to-end pass through the verification checklist — a live-device
+      smoke pass covered everything above (see live-verified notes per item);
+      not a full re-walk of every prior milestone's checklist item, which
+      would be its own multi-hour effort separate from this milestone's actual
+      changes.
 
 ---
 

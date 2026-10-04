@@ -1,6 +1,7 @@
 import { Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { ORANGE } from "./theme";
+import { useTheme } from "@/lib/theme";
 
 function StatIcon({ children }: { children: React.ReactNode }) {
   return (
@@ -14,7 +15,7 @@ function StatIcon({ children }: { children: React.ReactNode }) {
 }
 
 function Divider() {
-  return <View className="h-9 w-px bg-[#E7E7E7]" />;
+  return <View className="h-9 w-px bg-[#E7E7E7] dark:bg-[#332D28]" />;
 }
 
 export function RestaurantStats({
@@ -26,18 +27,19 @@ export function RestaurantStats({
   distance: string;
   closesAt: string;
 }) {
+  const { t } = useTheme();
   return (
    <View
   className="mx-4 mt-3 flex-row items-center pt-1"
-  style={{ borderTopWidth: 1, borderTopColor: "#E7E7E7" }}
+  style={{ borderTopWidth: 1, borderTopColor: t("#E7E7E7") }}
 >
   <View className="flex-1 flex-row items-center justify-center gap-3">
     <StatIcon>
       <Ionicons name="time-outline" size={13} color="#FFFFFF" />
     </StatIcon>
     <View className="items-start ">
-      <Text className="text-[12px] font-inter-bold text-[#111111] pt-2">{time}</Text>
-      <Text className="text-[10px] font-inter-regular text-[#555A65]">Delivery</Text>
+      <Text className="text-[12px] font-inter-bold text-[#111111] dark:text-[#F5F0EA] pt-2">{time}</Text>
+      <Text className="text-[10px] font-inter-regular text-[#555A65] dark:text-[#B7BAC2]">Delivery</Text>
     </View>
   </View>
   <Divider />
@@ -46,18 +48,18 @@ export function RestaurantStats({
       <Ionicons name="location-outline" size={13} color="#FFFFFF" />
     </StatIcon>
     <View className="items-start">
-      <Text className="text-[12px] font-inter-bold text-[#111111] pt-2">{distance}</Text>
-      <Text className="text-[10px] font-inter-regular text-[#555A65]">Distance</Text>
+      <Text className="text-[12px] font-inter-bold text-[#111111] dark:text-[#F5F0EA] pt-2">{distance}</Text>
+      <Text className="text-[10px] font-inter-regular text-[#555A65] dark:text-[#B7BAC2]">Distance</Text>
     </View>
   </View>
   <Divider />
   <View className="flex-1 flex-row items-center justify-center gap-3">
     <StatIcon>
-      <View className="h-2 w-2 rounded-full bg-white" />
+      <View className="h-2 w-2 rounded-full bg-white dark:bg-[#201B17]" />
     </StatIcon>
     <View className="items-start">
-      <Text className="text-[12px] font-inter-bold text-[#111111] pt-2">Open</Text>
-      <Text className="text-[10px] font-inter-regular text-[#555A65]">
+      <Text className="text-[12px] font-inter-bold text-[#111111] dark:text-[#F5F0EA] pt-2">Open</Text>
+      <Text className="text-[10px] font-inter-regular text-[#555A65] dark:text-[#B7BAC2]">
         Closes {closesAt}
       </Text>
     </View>

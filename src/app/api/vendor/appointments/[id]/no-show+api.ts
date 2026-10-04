@@ -5,12 +5,13 @@ import { requireVendor } from "@/lib/vendor";
 import { noShowAppointment } from "@/lib/appointments";
 import { sendPushToProfile } from "@/lib/push";
 import { inngest } from "@/inngest/client";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * POST /api/vendor/appointments/[id]/no-show — vendor-only, only once
  * `scheduledEnd` has passed. Refunds the student in full, same as cancel.
  */
-export async function POST(request: Request, { id }: Record<string, string>) {
+export const POST = withApi(async (request: Request, { id }: Record<string, string>) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request, { approved: true, offeringType: "service" }));
@@ -23,7 +24,7 @@ export async function POST(request: Request, { id }: Record<string, string>) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
-  const result = await noShowAppointment(id);
+  const result = await noShowAppointment(id, vendor.id);
   if (!result.ok) {
     const message =
       result.reason === "not_found"
@@ -46,4 +47,4 @@ export async function POST(request: Request, { id }: Record<string, string>) {
   });
 
   return Response.json({ ok: true });
-}
+});

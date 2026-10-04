@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { verifyAndCreditTopup } from "@/lib/wallet";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * POST /api/wallet/verify
@@ -11,7 +12,7 @@ import { verifyAndCreditTopup } from "@/lib/wallet";
  * tunnel). Shares `verifyAndCreditTopup`'s idempotency key with the webhook,
  * so it's safe regardless of which one runs first, or if both do.
  */
-export async function POST(request: Request) {
+export const POST = withApi(async (request: Request) => {
   try {
     await requireUser(request);
   } catch (res) {
@@ -39,4 +40,4 @@ export async function POST(request: Request) {
   }
 
   return Response.json({ status: result.status });
-}
+});

@@ -1,6 +1,7 @@
 import { Image, ImageSourcePropType, Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { TEXT_DARK, TEXT_GRAY } from "../vendor/theme";
+import { useTheme } from "@/lib/theme";
 
 export type CartLine = {
   id: string;
@@ -29,10 +30,11 @@ export function QuantityStepper({
   onIncrement: () => void;
   onDecrement: () => void;
 }) {
+  const { t } = useTheme();
   return (
     <View
-      className="flex-row items-center rounded-full bg-[#F7F3EF]"
-      style={{ height: 34, paddingHorizontal: 3, borderWidth: 1, borderColor: "#EFEAE3" }}
+      className="flex-row items-center rounded-full bg-[#F7F3EF] dark:bg-[#1A1613]"
+      style={{ height: 34, paddingHorizontal: 3, borderWidth: 1, borderColor: t("#EFEAE3") }}
     >
       <Pressable
         onPress={onDecrement}
@@ -40,10 +42,10 @@ export function QuantityStepper({
         className="items-center justify-center"
         style={{ width: STEPPER_BUTTON_SIZE, height: STEPPER_BUTTON_SIZE }}
       >
-        <Text className="text-[16px] font-inter-semibold text-[#111111]">–</Text>
+        <Text className="text-[16px] font-inter-semibold text-[#111111] dark:text-[#F5F0EA]">–</Text>
       </Pressable>
       <Text
-        className="text-[13px] font-inter-bold text-[#111111]"
+        className="text-[13px] font-inter-bold text-[#111111] dark:text-[#F5F0EA]"
         style={{ minWidth: 18, textAlign: "center" }}
       >
         {quantity}
@@ -54,7 +56,7 @@ export function QuantityStepper({
         className="items-center justify-center"
         style={{ width: STEPPER_BUTTON_SIZE, height: STEPPER_BUTTON_SIZE }}
       >
-        <Text className="text-[16px] font-inter-semibold text-[#111111]">+</Text>
+        <Text className="text-[16px] font-inter-semibold text-[#111111] dark:text-[#F5F0EA]">+</Text>
       </Pressable>
     </View>
   );
@@ -73,6 +75,7 @@ export function CartItemRow({
   onRemove?: () => void;
   scale?: number;
 }) {
+  const { t } = useTheme();
   return (
     <View className="flex-row items-center" style={{ gap: 14 }}>
       <Image
@@ -104,7 +107,7 @@ export function CartItemRow({
       </View>
       {onRemove ? (
         <Pressable onPress={onRemove} hitSlop={8}>
-          <Ionicons name="trash-outline" size={18 * scale} color="#B8AC9C" />
+          <Ionicons name="trash-outline" size={18 * scale} color={t("#B8AC9C")} />
         </Pressable>
       ) : null}
       <QuantityStepper quantity={line.quantity} onIncrement={onIncrement} onDecrement={onDecrement} />

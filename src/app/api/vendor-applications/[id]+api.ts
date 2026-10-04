@@ -2,13 +2,14 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { campuses, categories, profiles, vendorProfiles } from "@/db/schema";
 import { requireProfile } from "@/lib/auth";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET /api/vendor-applications/[id]
  * Full application detail. Admin can read any; a non-admin can only read their
  * own. Powers the admin review screen.
  */
-export async function GET(request: Request, { id }: Record<string, string>) {
+export const GET = withApi(async (request: Request, { id }: Record<string, string>) => {
   let profile;
   try {
     profile = await requireProfile(request);
@@ -37,4 +38,4 @@ export async function GET(request: Request, { id }: Record<string, string>) {
   }
 
   return Response.json(row);
-}
+});

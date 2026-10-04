@@ -2,13 +2,14 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { vendorProfiles } from "@/db/schema";
 import { requireVendor } from "@/lib/vendor";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * PATCH /api/vendor/logo
  * Set the caller's shop icon/logo (product vendors only — `shopIconUrl` is a
  * product-only field on `vendor_profiles`, see schema.ts).
  */
-export async function PATCH(request: Request) {
+export const PATCH = withApi(async (request: Request) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request, { offeringType: "product" }));
@@ -34,4 +35,4 @@ export async function PATCH(request: Request) {
     .returning({ shopIconUrl: vendorProfiles.shopIconUrl });
 
   return Response.json({ shopIconUrl: updated.shopIconUrl });
-}
+});

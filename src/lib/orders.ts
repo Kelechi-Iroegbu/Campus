@@ -18,9 +18,14 @@ export type CancelResult =
 export async function cancelOrder(
   orderId: string,
   by: "student" | "vendor" | "system",
+  expectedOwnerProfileId?: string,
 ): Promise<CancelResult> {
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
   if (!order) return { ok: false, reason: "not_found" };
+  if (expectedOwnerProfileId) {
+    const ownerId = by === "vendor" ? order.vendorProfileId : order.studentProfileId;
+    if (ownerId !== expectedOwnerProfileId) return { ok: false, reason: "not_found" };
+  }
   if (order.status !== "placed") return { ok: false, reason: "not_cancellable" };
 
   const studentWallet = await getOrCreateWallet(order.studentProfileId, "student");
@@ -53,9 +58,15 @@ export type CompleteResult =
  * subtotal (not the total — the platform fee is the platform's revenue,
  * never paid out).
  */
-export async function completeOrder(orderId: string): Promise<CompleteResult> {
+export async function completeOrder(
+  orderId: string,
+  expectedVendorProfileId?: string,
+): Promise<CompleteResult> {
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
   if (!order) return { ok: false, reason: "not_found" };
+  if (expectedVendorProfileId && order.vendorProfileId !== expectedVendorProfileId) {
+    return { ok: false, reason: "not_found" };
+  }
   if (order.status !== "ready") return { ok: false, reason: "not_completable" };
 
   const [vendor] = await db

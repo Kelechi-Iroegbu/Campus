@@ -1,11 +1,16 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useApi } from "@/lib/api";
+import { toWalletTxn, type ApiWalletTxn } from "@/lib/walletTxn";
+import { TransactionRow } from "@/components/vendor/TransactionRow";
+import type { WalletTxn } from "@/data/vendorWallet";
+import { ListState } from "@/components/ListState";
+import { useTheme } from "@/lib/theme";
 
 function formatNaira(minor: number) {
   return `₦${(minor / 100).toLocaleString(undefined, {
@@ -29,79 +34,43 @@ const quickActions = [
   { key: "history", label: "History", icon: "time-outline" as const, bg: "#FBEFD9", color: "#D9A521" },
 ];
 
-type Transaction = {
-  key: string;
-  name: string;
-  subtitle: string;
-  amount: string;
-  positive?: boolean;
-  time: string;
-  image?: number;
-  icon?: keyof typeof Ionicons.glyphMap;
-  iconBg?: string;
-  iconColor?: string;
-};
-
-const transactions: Transaction[] = [
-  {
-    key: "mama-t",
-    name: "Mama T's Kitchen",
-    subtitle: "Payment for jollof rice",
-    amount: "₦2,500",
-    time: "Today, 2:30 PM",
-    image: require("@/assets/images/home/vendor-mama-t.png"),
-  },
-  {
-    key: "top-up-1",
-    name: "Top up",
-    subtitle: "From Access Bank",
-    amount: "₦5,000",
-    positive: true,
-    time: "Today, 10:15 AM",
-    icon: "arrow-down-circle-outline",
-    iconBg: "#DFF3E5",
-    iconColor: "#2E9E4F",
-  },
-  {
-    key: "sweet-cravings",
-    name: "Sweet Cravings",
-    subtitle: "Payment for cupcake",
-    amount: "₦1,200",
-    time: "Yesterday, 4:30 PM",
-    image: require("@/assets/images/home/vendor-bakes-fola.png"),
-  },
-];
+const PREVIEW_COUNT = 3;
 
 export default function Wallet() {
+  const { t, isDark } = useTheme();
   const router = useRouter();
   const api = useApi();
   const [balanceMinor, setBalanceMinor] = useState<number | null>(null);
+  const [transactions, setTransactions] = useState<WalletTxn[]>([]);
+  const [walletError, setWalletError] = useState(false);
+
+  const loadWallet = useCallback(async () => {
+    setWalletError(false);
+    try {
+      const res = await api("/api/wallet/transactions");
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        balanceMinor?: number;
+        transactions?: ApiWalletTxn[];
+      };
+      if (typeof data.balanceMinor === "number") setBalanceMinor(data.balanceMinor);
+      setTransactions((data.transactions ?? []).map(toWalletTxn));
+    } catch {
+      // Keep the placeholder balance.
+      setWalletError(true);
+    }
+  }, [api]);
 
   useFocusEffect(
     useCallback(() => {
-      let cancelled = false;
-      (async () => {
-        try {
-          const res = await api("/api/wallet/transactions");
-          if (!res.ok) return;
-          const data = (await res.json()) as { balanceMinor?: number };
-          if (!cancelled && typeof data.balanceMinor === "number") {
-            setBalanceMinor(data.balanceMinor);
-          }
-        } catch {
-          // Keep the placeholder balance.
-        }
-      })();
-      return () => {
-        cancelled = true;
-      };
-    }, [api]),
+      void loadWallet();
+    }, [loadWallet]),
   );
 
   return (
-    <View className="flex-1 bg-[#FBF3EC]">
+    <View className="flex-1 bg-[#FBF3EC] dark:bg-[#15120F]">
       <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? "light" : "dark"} />
       <SafeAreaView className="flex-1" edges={["top"]}>
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -112,16 +81,16 @@ export default function Wallet() {
             <Pressable
               style={cardShadow}
               hitSlop={8}
-              className="h-[44px] w-[44px] items-center justify-center rounded-2xl bg-white"
+              className="h-[44px] w-[44px] items-center justify-center rounded-2xl bg-white dark:bg-[#201B17]"
               onPress={() => router.canGoBack() && router.back()}
             >
-              <Ionicons name="arrow-back" size={20} color="#1F1F1F" />
+              <Ionicons name="arrow-back" size={20} color={t("#1F1F1F")} />
             </Pressable>
           </View>
 
           {/* Title */}
           <View className="mt-3 px-3">
-            <Text className="text-[34px] font-inter-bold text-[#1F1F1F]">Wallet</Text>
+            <Text className="text-[34px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">Wallet</Text>
           </View>
 
           {/* Balance card */}
@@ -170,7 +139,7 @@ export default function Wallet() {
                 </Text>
               )}
               <Pressable
-                className="mt-4 flex-row items-center gap-2 self-start rounded-full bg-white px-5 py-3"
+                className="mt-4 flex-row items-center gap-2 self-start rounded-full bg-white dark:bg-[#201B17] px-5 py-3"
                 onPress={() => router.push("/wallet/topup")}
               >
                 <Ionicons name="add-circle-outline" size={18} color="#FF5A1F" />
@@ -185,7 +154,7 @@ export default function Wallet() {
               <Pressable
                 key={action.key}
                 style={[cardShadow, { flex: 1 }]}
-                className="items-center rounded-[18px] bg-white py-4"
+                className="items-center rounded-[18px] bg-white dark:bg-[#201B17] py-4"
                 onPress={
                   action.key === "top-up"
                     ? () => router.push("/wallet/topup")
@@ -205,7 +174,7 @@ export default function Wallet() {
                 >
                   <Ionicons name={action.icon} size={21} color={action.color} />
                 </View>
-                <Text className="mt-2 text-[12px] font-inter-semibold text-[#1F1F1F]">
+                <Text className="mt-2 text-[12px] font-inter-semibold text-[#1F1F1F] dark:text-[#F3EEE8]">
                   {action.label}
                 </Text>
               </Pressable>
@@ -215,7 +184,7 @@ export default function Wallet() {
           {/* Recent Transactions */}
           <View className="mt-6 px-3">
             <View className="flex-row items-center justify-between">
-              <Text className="text-[19px] font-inter-bold text-[#1F1F1F]">
+              <Text className="text-[19px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
                 Recent Transactions
               </Text>
               <Pressable
@@ -228,60 +197,23 @@ export default function Wallet() {
               </Pressable>
             </View>
 
-            <View style={cardShadow} className="mt-3 rounded-[18px] bg-white p-3">
-              {transactions.map((tx, index) => (
-                <View
-                  key={tx.key}
-                  className={`flex-row items-center gap-3 py-2 ${
-                    index > 0 ? "mt-2 border-t border-[#F0EAE3] pt-4" : ""
-                  }`}
-                >
-                  {tx.image ? (
-                    <Image
-                      source={tx.image}
-                      style={{ width: 52, height: 52, borderRadius: 14 }}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View
-                      style={{
-                        width: 52,
-                        height: 52,
-                        borderRadius: 14,
-                        backgroundColor: tx.iconBg,
-                      }}
-                      className="items-center justify-center"
-                    >
-                      <Ionicons name={tx.icon!} size={24} color={tx.iconColor} />
-                    </View>
-                  )}
-                  <View className="flex-1 shrink">
-                    <Text numberOfLines={1} className="text-[15px] font-inter-bold text-[#1F1F1F]">
-                      {tx.name}
-                    </Text>
-                    <Text
-                      numberOfLines={1}
-                      className="mt-[2px] text-[13px] font-inter-regular text-[#8A8A8A]"
-                    >
-                      {tx.subtitle}
-                    </Text>
-                  </View>
-                  <View className="items-end">
-                    <Text
-                      className={`text-[15px] font-inter-bold ${
-                        tx.positive ? "text-[#3FA65A]" : "text-[#1F1F1F]"
-                      }`}
-                    >
-                      {tx.positive ? "+ " : "− "}
-                      {tx.amount}
-                    </Text>
-                    <Text className="mt-[2px] text-[12px] font-inter-regular text-[#8A8A8A]">
-                      {tx.time}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
+            {walletError && transactions.length === 0 ? (
+              <ListState
+                variant="error"
+                title="Couldn't load transactions. Check your connection and try again."
+                onRetry={loadWallet}
+              />
+            ) : transactions.length === 0 ? (
+              <Text className="mt-4 text-center text-[14px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">
+                No transactions yet.
+              </Text>
+            ) : (
+              <View className="mt-3 gap-3">
+                {transactions.slice(0, PREVIEW_COUNT).map((tx) => (
+                  <TransactionRow key={tx.id} txn={tx} />
+                ))}
+              </View>
+            )}
           </View>
         </ScrollView>
       </SafeAreaView>

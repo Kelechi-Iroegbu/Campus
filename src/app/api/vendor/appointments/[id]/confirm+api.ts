@@ -5,9 +5,10 @@ import { requireVendor } from "@/lib/vendor";
 import { confirmAppointment } from "@/lib/appointments";
 import { sendPushToProfile } from "@/lib/push";
 import { inngest } from "@/inngest/client";
+import { withApi } from "@/lib/apiHandler";
 
 /** POST /api/vendor/appointments/[id]/confirm — booked -> confirmed. */
-export async function POST(request: Request, { id }: Record<string, string>) {
+export const POST = withApi(async (request: Request, { id }: Record<string, string>) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request, { approved: true, offeringType: "service" }));
@@ -20,7 +21,7 @@ export async function POST(request: Request, { id }: Record<string, string>) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
-  const result = await confirmAppointment(id);
+  const result = await confirmAppointment(id, vendor.id);
   if (!result.ok) {
     return Response.json(
       { error: result.reason === "not_found" ? "Not found" : "Appointment can no longer be confirmed" },
@@ -40,4 +41,4 @@ export async function POST(request: Request, { id }: Record<string, string>) {
   });
 
   return Response.json({ ok: true });
-}
+});

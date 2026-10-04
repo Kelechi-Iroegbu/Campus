@@ -3,9 +3,10 @@ import { db } from "@/db";
 import { orders } from "@/db/schema";
 import { requireVendor } from "@/lib/vendor";
 import { sendPushToProfile } from "@/lib/push";
+import { withApi } from "@/lib/apiHandler";
 
 /** POST /api/vendor/orders/[id]/ready — accepted -> ready. */
-export async function POST(request: Request, { id }: Record<string, string>) {
+export const POST = withApi(async (request: Request, { id }: Record<string, string>) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request, { approved: true, offeringType: "product" }));
@@ -33,4 +34,4 @@ export async function POST(request: Request, { id }: Record<string, string>) {
   });
 
   return Response.json({ ok: true });
-}
+});

@@ -2,6 +2,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { services, vendorProfiles } from "@/db/schema";
 import { requireVendor } from "@/lib/vendor";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET    /api/services/[id]   — one service (public; used by the booking flow).
@@ -9,7 +10,7 @@ import { requireVendor } from "@/lib/vendor";
  * DELETE /api/services/[id]   — soft-delete (owner).
  */
 
-export async function GET(_request: Request, { id }: Record<string, string>) {
+export const GET = withApi(async (_request: Request, { id }: Record<string, string>) => {
   const [row] = await db
     .select({
       service: services,
@@ -24,9 +25,9 @@ export async function GET(_request: Request, { id }: Record<string, string>) {
 
   if (!row) return Response.json({ error: "Not found" }, { status: 404 });
   return Response.json(row);
-}
+});
 
-export async function PATCH(request: Request, { id }: Record<string, string>) {
+export const PATCH = withApi(async (request: Request, { id }: Record<string, string>) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request));
@@ -83,9 +84,9 @@ export async function PATCH(request: Request, { id }: Record<string, string>) {
     .returning();
 
   return Response.json({ service: row });
-}
+});
 
-export async function DELETE(request: Request, { id }: Record<string, string>) {
+export const DELETE = withApi(async (request: Request, { id }: Record<string, string>) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request));
@@ -109,4 +110,4 @@ export async function DELETE(request: Request, { id }: Record<string, string>) {
     .where(eq(services.id, id));
 
   return Response.json({ ok: true });
-}
+});

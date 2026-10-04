@@ -4,12 +4,15 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type { ReactNode } from "react";
 import type { Href } from "expo-router";
+import { Platform } from "react-native";
 import { useAuth } from "@clerk/expo";
 import { useApi } from "@/lib/api";
+import { registerForPushNotificationsAsync } from "@/lib/pushNotifications";
 
 /**
  * App session — the `/api/me` payload plus derived flags, refetched whenever
@@ -38,6 +41,7 @@ export type Me = {
   vendor: {
     status: string;
     offeringType: string;
+    displayName: string;
     isOpen: boolean;
     shopIconUrl: string | null;
     coverPhotoUrl: string | null;
@@ -95,6 +99,30 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!isLoaded) return;
     void refetch();
   }, [isLoaded, isSignedIn, refetch]);
+
+  // Register this device's push token once per profile — not once per app
+  // session. SessionProvider never unmounts across a sign-out -> sign-in on
+  // the same device (Expo Router just navigates), so `me` legitimately goes
+  // null -> A -> null -> B within one JS runtime lifetime; guarding on the
+  // profile id (rather than a one-shot "ever ran" flag) re-registers for B
+  // too, and correctly no-ops on switchRole() (same profile, new activeRole).
+  const registeredProfileIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!me || registeredProfileIdRef.current === me.profile.id) return;
+    registeredProfileIdRef.current = me.profile.id;
+    void (async () => {
+      try {
+        const result = await registerForPushNotificationsAsync();
+        if (result.status !== "granted") return;
+        await api("/api/push-tokens", {
+          method: "POST",
+          body: JSON.stringify({ token: result.token, platform: Platform.OS }),
+        });
+      } catch (err) {
+        console.warn("Push token registration failed", err);
+      }
+    })();
+  }, [me, api]);
 
   const switchRole = useCallback(
     async (role: "student" | "vendor"): Promise<SwitchRoleResult> => {

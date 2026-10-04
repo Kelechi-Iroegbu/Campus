@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { serviceAvailability } from "@/db/schema";
 import { requireVendor } from "@/lib/vendor";
 import { loadAvailability } from "@/lib/serviceAvailability";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET  /api/vendor/availability — the caller's weekly pattern + date overrides.
@@ -18,7 +19,7 @@ import { loadAvailability } from "@/lib/serviceAvailability";
  *   { type: "clear-override", date: "YYYY-MM-DD" }               — revert to the weekly pattern
  */
 
-export async function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request));
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
 
   const { weekly, overrides } = await loadAvailability(vendor.id);
   return Response.json({ weekly, overrides });
-}
+});
 
 type Window = { start: string; end: string };
 
@@ -41,7 +42,7 @@ function isWindow(w: unknown): w is Window {
   );
 }
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request: Request) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request));
@@ -141,4 +142,4 @@ export async function POST(request: Request) {
   }
 
   return Response.json({ error: "Unknown type" }, { status: 400 });
-}
+});

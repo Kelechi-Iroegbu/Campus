@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useApi } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useImageUpload } from "@/lib/useImageUpload";
+import { useTheme } from "@/lib/theme";
 
 const ORANGE = "#FF5A1F";
 const HEADING = "#1F1F1F";
@@ -32,6 +33,7 @@ const fieldShadow = {
 };
 
 export default function EditProfile() {
+  const { t, isDark } = useTheme();
   const router = useRouter();
   const api = useApi();
   const { me, refetch } = useSession();
@@ -80,9 +82,9 @@ export default function EditProfile() {
   };
 
   return (
-    <View className="flex-1 bg-[#FBF3EC]">
+    <View className="flex-1 bg-[#FBF3EC] dark:bg-[#15120F]">
       <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? "light" : "dark"} />
       <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
         <KeyboardAvoidingView
           className="flex-1"
@@ -90,9 +92,9 @@ export default function EditProfile() {
         >
           <View className="flex-row items-center justify-between px-4 pt-3">
             <Pressable onPress={goBack} hitSlop={8}>
-              <Ionicons name="chevron-back" size={24} color={HEADING} />
+              <Ionicons name="chevron-back" size={24} color={t(HEADING)} />
             </Pressable>
-            <Text className="text-[17px] font-inter-bold" style={{ color: HEADING }}>
+            <Text className="text-[17px] font-inter-bold" style={{ color: t(HEADING) }}>
               Edit Profile
             </Text>
             <View style={{ width: 24 }} />
@@ -113,12 +115,12 @@ export default function EditProfile() {
                     resizeMode="cover"
                   />
                 ) : (
-                  <View className="h-24 w-24 items-center justify-center rounded-full bg-[#E4D8CC]">
-                    <Ionicons name="person" size={46} color="#B8AC9C" />
+                  <View className="h-24 w-24 items-center justify-center rounded-full bg-[#E4D8CC] dark:bg-[#3A322B]">
+                    <Ionicons name="person" size={46} color={t("#B8AC9C")} />
                   </View>
                 )}
                 <View
-                  className="absolute -bottom-1 -right-1 h-8 w-8 items-center justify-center rounded-full border-2 border-[#FBF3EC]"
+                  className="absolute -bottom-1 -right-1 h-8 w-8 items-center justify-center rounded-full border-2 border-[#FBF3EC] dark:border-[#15120F]"
                   style={{ backgroundColor: ORANGE }}
                 >
                   {uploading ? (
@@ -128,7 +130,7 @@ export default function EditProfile() {
                   )}
                 </View>
               </Pressable>
-              <Text className="mt-3 text-[13px] font-inter-medium" style={{ color: LABEL }}>
+              <Text className="mt-3 text-[13px] font-inter-medium" style={{ color: t(LABEL) }}>
                 {uploading ? "Uploading…" : "Tap to change photo"}
               </Text>
             </View>
@@ -136,19 +138,19 @@ export default function EditProfile() {
             <View className="mt-8">
               <Text
                 className="mb-2 text-[14px] font-inter-bold"
-                style={{ color: HEADING }}
+                style={{ color: t(HEADING) }}
               >
                 Full name
               </Text>
               <View
                 style={fieldShadow}
-                className="justify-center rounded-2xl border border-[#EFEAE2] bg-white px-4"
+                className="justify-center rounded-2xl border border-[#EFEAE2] dark:border-[#2E2924] bg-white dark:bg-[#201B17] px-4"
               >
                 <TextInput
                   className="text-[16px] font-inter-regular"
-                  style={{ color: HEADING, minHeight: 52 }}
+                  style={{ color: t(HEADING), minHeight: 52 }}
                   placeholder="Your name"
-                  placeholderTextColor="#B4AEA4"
+                  placeholderTextColor={t("#B4AEA4")}
                   value={name}
                   onChangeText={setName}
                   autoCapitalize="words"
@@ -159,19 +161,19 @@ export default function EditProfile() {
             <View className="mt-5">
               <Text
                 className="mb-2 text-[14px] font-inter-bold"
-                style={{ color: HEADING }}
+                style={{ color: t(HEADING) }}
               >
                 Phone number
               </Text>
               <View
                 style={fieldShadow}
-                className="justify-center rounded-2xl border border-[#EFEAE2] bg-white px-4"
+                className="justify-center rounded-2xl border border-[#EFEAE2] dark:border-[#2E2924] bg-white dark:bg-[#201B17] px-4"
               >
                 <TextInput
                   className="text-[16px] font-inter-regular"
-                  style={{ color: HEADING, minHeight: 52 }}
+                  style={{ color: t(HEADING), minHeight: 52 }}
                   placeholder="Phone number"
-                  placeholderTextColor="#B4AEA4"
+                  placeholderTextColor={t("#B4AEA4")}
                   value={phone}
                   onChangeText={setPhone}
                   keyboardType="phone-pad"

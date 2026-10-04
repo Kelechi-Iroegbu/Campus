@@ -4,6 +4,7 @@ import { dbPool } from "@/db/pool";
 import { profiles, vendorProfiles, wallets } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
 import { inngest } from "@/inngest/client";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * POST /api/vendor-applications/[id]/approve  (admin only)
@@ -13,7 +14,7 @@ import { inngest } from "@/inngest/client";
  * product/service → `vendor`). Emits `vendor/application.approved` for the
  * push-notification job.
  */
-export async function POST(request: Request, { id }: Record<string, string>) {
+export const POST = withApi(async (request: Request, { id }: Record<string, string>) => {
   let admin;
   try {
     admin = await requireAdmin(request);
@@ -75,4 +76,4 @@ export async function POST(request: Request, { id }: Record<string, string>) {
   });
 
   return Response.json({ application: updated });
-}
+});

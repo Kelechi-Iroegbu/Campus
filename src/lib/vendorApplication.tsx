@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -76,6 +77,58 @@ export function VendorApplicationProvider({ children }: { children: ReactNode })
   const api = useApi();
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
+
+  // Rejected (or otherwise unfinished) applicants re-enter this flow from
+  // `vendor-application/pending.tsx`'s "Edit & resubmit" button — without
+  // this, they'd have to retype an application that already exists in the
+  // DB from scratch. Hydrates once on mount; a no-op for a first-time
+  // applicant (`mine` returns `{ application: null }`, draft stays EMPTY).
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const mineRes = await api("/api/vendor-applications/mine");
+        if (!mineRes.ok) return;
+        const mine = (await mineRes.json()) as { application: { id: string } | null };
+        if (!mine.application?.id || cancelled) return;
+
+        const fullRes = await api(`/api/vendor-applications/${mine.application.id}`);
+        if (!fullRes.ok || cancelled) return;
+        const full = (await fullRes.json()) as {
+          application: Record<string, unknown>;
+          campusName: string | null;
+          categoryName: string | null;
+        };
+        const a = full.application;
+        if (cancelled) return;
+        setDraft({
+          offeringType: (a.offeringType as OfferingType | null) ?? null,
+          displayName: (a.displayName as string) ?? "",
+          categoryId: (a.categoryId as string | null) ?? null,
+          categoryName: full.categoryName,
+          vehicleMode: (a.vehicleMode as VehicleMode | null) ?? null,
+          campusId: (a.campusId as string | null) ?? null,
+          campusName: full.campusName,
+          address: (a.address as string) ?? "",
+          description: (a.description as string) ?? "",
+          coverPhotoUrl: (a.coverPhotoUrl as string | null) ?? null,
+          govIdUrl: (a.govIdUrl as string | null) ?? null,
+          selfieUrl: (a.selfieUrl as string | null) ?? null,
+          ownerName: (a.ownerName as string) ?? "",
+          phone: (a.phone as string) ?? "",
+          bankName: (a.bankName as string) ?? "",
+          bankAccountNumber: (a.bankAccountNumber as string) ?? "",
+          bankAccountName: (a.bankAccountName as string) ?? "",
+        });
+      } catch {
+        // First-time applicants and network hiccups both just keep EMPTY —
+        // the wizard works fine starting from scratch either way.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
 
   const patch = useCallback((p: Partial<Draft>) => {
     setDraft((d) => ({ ...d, ...p }));

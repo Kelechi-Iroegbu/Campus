@@ -2,13 +2,14 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { vendorProfiles } from "@/db/schema";
 import { requireVendor } from "@/lib/vendor";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * PATCH /api/vendor/store-status
  * Toggle the caller's "accepting orders right now" flag. Any offering type,
  * approved or not (a vendor mid-review can still set their intended status).
  */
-export async function PATCH(request: Request) {
+export const PATCH = withApi(async (request: Request) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request));
@@ -34,4 +35,4 @@ export async function PATCH(request: Request) {
     .returning({ isOpen: vendorProfiles.isOpen });
 
   return Response.json({ isOpen: updated.isOpen });
-}
+});

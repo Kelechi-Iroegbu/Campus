@@ -4,21 +4,19 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { Stack } from "expo-router";
-import {
-  acceptRequest,
-  declineRequest,
-  markDelivered as markDeliveredInStore,
-  nairaAmount,
-  useCourierStore,
-  type NewRequest,
-  type PastDelivery,
-} from "@/data/courier";
+import { useCourierDeliveries, type DeliveryJobRow } from "@/lib/useCourierDeliveries";
 import { ActiveDeliveryCard } from "@/components/courier/ActiveDeliveryCard";
 import { RequestCard } from "@/components/courier/RequestCard";
 import { cardBase, GREEN, HEADING, ORANGE, SCREEN_BG, SUBTLE } from "@/components/courier/theme";
 
-function HistoryRow({ delivery }: { delivery: PastDelivery }) {
-  const cancelled = delivery.status === "cancelled";
+function naira(minor: number) {
+  return `₦${(minor / 100).toLocaleString()}`;
+}
+
+function HistoryRow({ row }: { row: DeliveryJobRow }) {
+  const { job, pickupVendorName } = row;
+  const failed = job.status === "failed" || job.status === "cancelled";
+  const pickupLabel = job.source === "order" ? pickupVendorName ?? "Vendor" : job.pickupNote ?? "Pickup";
   return (
     <View
       className="flex-row items-center gap-3 rounded-2xl p-3.5"
@@ -26,12 +24,12 @@ function HistoryRow({ delivery }: { delivery: PastDelivery }) {
     >
       <View
         className="h-11 w-11 items-center justify-center rounded-2xl"
-        style={{ backgroundColor: cancelled ? "#F1ECE4" : "#E4F4E6" }}
+        style={{ backgroundColor: failed ? "#F1ECE4" : "#E4F4E6" }}
       >
         <Ionicons
-          name={cancelled ? "close-circle-outline" : "checkmark-circle-outline"}
+          name={failed ? "close-circle-outline" : "checkmark-circle-outline"}
           size={20}
-          color={cancelled ? SUBTLE : GREEN}
+          color={failed ? SUBTLE : GREEN}
         />
       </View>
       <View className="flex-1 shrink">
@@ -40,31 +38,31 @@ function HistoryRow({ delivery }: { delivery: PastDelivery }) {
           className="text-[13.5px] font-inter-bold"
           style={{ color: HEADING }}
         >
-          {delivery.from} → {delivery.to}
+          {pickupLabel} → {job.dropoffNote ?? "Dropoff"}
         </Text>
         <Text
           className="mt-0.5 text-[12px] font-inter-regular"
           style={{ color: SUBTLE }}
         >
-          {delivery.code} · {delivery.time}
+          #{job.id.slice(0, 8)} · {new Date(job.createdAt).toLocaleDateString()}
         </Text>
       </View>
       <View className="items-end gap-1.5">
         <Text
           className="text-[14.5px] font-inter-bold"
-          style={{ color: cancelled ? SUBTLE : ORANGE }}
+          style={{ color: failed ? SUBTLE : ORANGE }}
         >
-          {nairaAmount(delivery.amount)}
+          {naira(job.deliveryFeeMinor)}
         </Text>
         <View
           className="rounded-full px-2.5 py-0.5"
-          style={{ backgroundColor: cancelled ? "#F1ECE4" : "#E4F4E6" }}
+          style={{ backgroundColor: failed ? "#F1ECE4" : "#E4F4E6" }}
         >
           <Text
             className="text-[11px] font-inter-bold"
-            style={{ color: cancelled ? SUBTLE : GREEN }}
+            style={{ color: failed ? SUBTLE : GREEN }}
           >
-            {cancelled ? "Cancelled" : "Delivered"}
+            {job.status === "cancelled" ? "Cancelled" : job.status === "failed" ? "Failed" : "Delivered"}
           </Text>
         </View>
       </View>
@@ -73,38 +71,73 @@ function HistoryRow({ delivery }: { delivery: PastDelivery }) {
 }
 
 export default function CourierDeliveries() {
-  const { online, active, requests, history } = useCourierStore();
+  const [online] = useState(true);
   const [tab, setTab] = useState<"active" | "history">("active");
+  const { openJobs, activeJob, history, claim, markPickedUp, markDelivered, fail } =
+    useCourierDeliveries();
 
-  const markDelivered = () => {
-    if (!active) return;
+  const doMarkPickedUp = async () => {
+    const result = await markPickedUp();
+    if (!result.ok) Alert.alert("Couldn't update", result.error);
+  };
+
+  const doMarkDelivered = () => {
+    if (!activeJob) return;
     Alert.alert(
-      `Mark ${active.code} as delivered?`,
+      "Mark as delivered?",
       "This confirms drop-off and adds the fee to today's earnings.",
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Mark delivered", onPress: markDeliveredInStore },
+        {
+          text: "Mark delivered",
+          onPress: async () => {
+            const result = await markDelivered();
+            if (!result.ok) Alert.alert("Couldn't update", result.error);
+          },
+        },
       ],
     );
   };
 
-  const navigate = () => {
-    if (!active) return;
-    Alert.alert("Navigate", `Opening directions to ${active.dropName}…`);
+  const doFail = () => {
+    if (!activeJob) return;
+    Alert.alert("Report a problem", "This refunds the requester in full.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Report",
+        style: "destructive",
+        onPress: async () => {
+          const result = await fail("Reported by courier");
+          if (!result.ok) Alert.alert("Couldn't report", result.error);
+        },
+      },
+    ]);
   };
 
-  const respondToRequest = (req: NewRequest) => {
-    if (active) {
+  const respondToRequest = (row: DeliveryJobRow) => {
+    if (activeJob) {
       Alert.alert(
         "You're on a delivery",
-        "Finish your active delivery before accepting another.",
+        "Finish your active delivery before claiming another.",
       );
       return;
     }
-    Alert.alert(req.label, `${req.meta} · ${nairaAmount(req.amount)}`, [
-      { text: "Decline", style: "cancel", onPress: () => declineRequest(req.id) },
-      { text: "Accept", onPress: () => acceptRequest(req.id) },
-    ]);
+    const pickupLabel =
+      row.job.source === "order" ? row.pickupVendorName ?? "Vendor" : row.job.pickupNote ?? "Pickup";
+    Alert.alert(
+      `${pickupLabel} → ${row.job.dropoffNote ?? "Dropoff"}`,
+      naira(row.job.deliveryFeeMinor),
+      [
+        { text: "Decline", style: "cancel" },
+        {
+          text: "Accept",
+          onPress: async () => {
+            const result = await claim(row.job.id);
+            if (!result.ok) Alert.alert("Couldn't claim", result.error);
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -173,9 +206,11 @@ export default function CourierDeliveries() {
                   Current delivery
                 </Text>
                 <ActiveDeliveryCard
-                  delivery={active}
-                  onNavigate={navigate}
-                  onMarkDelivered={markDelivered}
+                  job={activeJob?.job ?? null}
+                  pickupVendorName={activeJob?.pickupVendorName ?? null}
+                  onMarkPickedUp={doMarkPickedUp}
+                  onMarkDelivered={doMarkDelivered}
+                  onFail={doFail}
                 />
               </View>
 
@@ -186,7 +221,7 @@ export default function CourierDeliveries() {
                 >
                   Open requests
                 </Text>
-                {requests.length === 0 ? (
+                {openJobs.length === 0 ? (
                   <Text
                     className="text-[13px] font-inter-regular"
                     style={{ color: SUBTLE }}
@@ -197,11 +232,12 @@ export default function CourierDeliveries() {
                   </Text>
                 ) : (
                   <View className="gap-3">
-                    {requests.map((r) => (
+                    {openJobs.map((row) => (
                       <RequestCard
-                        key={r.id}
-                        request={r}
-                        onPress={() => respondToRequest(r)}
+                        key={row.job.id}
+                        job={row.job}
+                        pickupVendorName={row.pickupVendorName}
+                        onPress={() => respondToRequest(row)}
                       />
                     ))}
                   </View>
@@ -220,8 +256,8 @@ export default function CourierDeliveries() {
             </View>
           ) : (
             <View className="gap-3">
-              {history.map((h) => (
-                <HistoryRow key={h.id} delivery={h} />
+              {history.map((row) => (
+                <HistoryRow key={row.job.id} row={row} />
               ))}
             </View>
           )}

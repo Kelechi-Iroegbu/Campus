@@ -12,6 +12,7 @@ import {
 import { slotsForDate } from "@/lib/booking";
 import { PLATFORM_FEE_MINOR } from "@/lib/constants";
 import { inngest } from "@/inngest/client";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET  /api/appointments   — the caller's own appointments (student side).
@@ -22,7 +23,7 @@ import { inngest } from "@/inngest/client";
  *   is only for a friendlier error message.
  */
 
-export async function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   let user;
   try {
     user = await requireUser(request);
@@ -56,9 +57,9 @@ export async function GET(request: Request) {
     .orderBy(desc(appointments.scheduledStart));
 
   return Response.json({ appointments: rows });
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request: Request) => {
   let user;
   try {
     user = await requireUser(request);
@@ -200,4 +201,4 @@ export async function POST(request: Request) {
     .where(eq(appointments.id, appointmentId))
     .limit(1);
   return Response.json({ appointment }, { status: 201 });
-}
+});

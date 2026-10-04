@@ -1,12 +1,13 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { categories } from "@/db/schema";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET /api/categories?kind=product|service
  * Feeds the shared icon-grid picker in the vendor application. Public.
  */
-export async function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   const kind = new URL(request.url).searchParams.get("kind");
 
   const rows = await db
@@ -22,4 +23,4 @@ export async function GET(request: Request) {
     .orderBy(asc(categories.sortOrder), asc(categories.name));
 
   return Response.json({ categories: rows });
-}
+});

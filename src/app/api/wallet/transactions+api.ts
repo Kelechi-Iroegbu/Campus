@@ -3,13 +3,14 @@ import { db } from "@/db";
 import { walletTransactions } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { getOrCreateWallet } from "@/lib/wallet";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET /api/wallet/transactions
  * Returns the student wallet's current balance + recent ledger rows.
  * The client polls this after returning from a Paystack top-up.
  */
-export async function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   let user;
   try {
     user = await requireUser(request);
@@ -39,4 +40,4 @@ export async function GET(request: Request) {
     currency: wallet.currency,
     transactions: rows,
   });
-}
+});

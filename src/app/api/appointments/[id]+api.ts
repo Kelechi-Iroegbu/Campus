@@ -2,9 +2,10 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { appointments, vendorProfiles } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
+import { withApi } from "@/lib/apiHandler";
 
 /** GET /api/appointments/[id] — viewable by the owning student or vendor. */
-export async function GET(request: Request, { id }: Record<string, string>) {
+export const GET = withApi(async (request: Request, { id }: Record<string, string>) => {
   let user;
   try {
     user = await requireUser(request);
@@ -37,4 +38,4 @@ export async function GET(request: Request, { id }: Record<string, string>) {
     vendorName: row.vendorName,
     vendorCoverPhotoUrl: row.vendorCoverPhotoUrl,
   });
-}
+});

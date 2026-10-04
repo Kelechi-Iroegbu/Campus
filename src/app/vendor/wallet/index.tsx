@@ -1,11 +1,15 @@
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { useApi } from "@/lib/api";
 import { TransactionRow } from "@/components/vendor/TransactionRow";
-import { VENDOR_TRANSACTIONS } from "@/data/vendorWallet";
+import type { WalletTxn } from "@/data/vendorWallet";
+import { naira, toWalletTxn, type ApiWalletTxn } from "@/lib/walletTxn";
+import { ListState } from "@/components/ListState";
 
 // --- shared with the other vendor tabs so the section stays uniform ---
 const HEADING = "#14142B";
@@ -16,7 +20,35 @@ const PREVIEW_COUNT = 4;
 
 export default function VendorWallet() {
   const router = useRouter();
-  const preview = VENDOR_TRANSACTIONS.slice(0, PREVIEW_COUNT);
+  const api = useApi();
+  const [balanceMinor, setBalanceMinor] = useState<number | null>(null);
+  const [transactions, setTransactions] = useState<WalletTxn[]>([]);
+  const [walletError, setWalletError] = useState(false);
+
+  const loadWallet = useCallback(async () => {
+    setWalletError(false);
+    try {
+      const res = await api("/api/vendor/wallet");
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        balanceMinor: number;
+        transactions: ApiWalletTxn[];
+      };
+      setBalanceMinor(data.balanceMinor);
+      setTransactions(data.transactions.map(toWalletTxn));
+    } catch {
+      // keep showing whatever was last loaded
+      setWalletError(true);
+    }
+  }, [api]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadWallet();
+    }, [loadWallet]),
+  );
+
+  const preview = transactions.slice(0, PREVIEW_COUNT);
 
   return (
     <View className="flex-1" style={{ backgroundColor: SCREEN_BG }}>
@@ -37,7 +69,10 @@ export default function VendorWallet() {
             >
               Wallet
             </Text>
-            <View className="relative">
+            <Pressable
+              className="relative"
+              onPress={() => router.push("/notifications")}
+            >
               <View
                 className="h-11 w-11 items-center justify-center rounded-2xl"
                 style={{
@@ -56,7 +91,7 @@ export default function VendorWallet() {
                 className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border-2 border-white"
                 style={{ backgroundColor: ORANGE }}
               />
-            </View>
+            </Pressable>
           </View>
 
           {/* Balance card */}
@@ -94,17 +129,24 @@ export default function VendorWallet() {
               >
                 AVAILABLE BALANCE
               </Text>
-              <Text className="mt-1.5 text-[40px] font-inter-bold text-white">
-                ₦18,400
-              </Text>
+              {balanceMinor === null ? (
+                <ActivityIndicator
+                  color="#FFFFFF"
+                  style={{ marginTop: 12, alignSelf: "flex-start" }}
+                />
+              ) : (
+                <Text className="mt-1.5 text-[40px] font-inter-bold text-white">
+                  {naira(balanceMinor)}
+                </Text>
+              )}
 
               <View className="mt-5 flex-row gap-3">
                 <Pressable
-                  onPress={() => router.push("/vendor/wallet" as never)}
+                  onPress={() => router.push("/vendor/wallet/payout" as never)}
                   className="flex-1 flex-row items-center justify-center gap-2 rounded-full bg-white py-3.5"
                 >
                   <MaterialCommunityIcons
-                    name="credit-card-plus-outline"
+                    name="tray-arrow-up"
                     size={20}
                     color={ORANGE}
                   />
@@ -112,20 +154,6 @@ export default function VendorWallet() {
                     className="text-[15px] font-inter-bold"
                     style={{ color: ORANGE }}
                   >
-                    Fund wallet
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => router.push("/vendor/wallet" as never)}
-                  className="flex-1 flex-row items-center justify-center gap-2 rounded-full py-3.5"
-                  style={{ backgroundColor: "rgba(255,255,255,0.22)" }}
-                >
-                  <MaterialCommunityIcons
-                    name="tray-arrow-up"
-                    size={20}
-                    color="#FFFFFF"
-                  />
-                  <Text className="text-[15px] font-inter-bold text-white">
                     Withdraw
                   </Text>
                 </Pressable>
@@ -154,11 +182,26 @@ export default function VendorWallet() {
             </Pressable>
           </View>
 
-          <View className="gap-3">
-            {preview.map((t) => (
-              <TransactionRow key={t.id} txn={t} />
-            ))}
-          </View>
+          {walletError && preview.length === 0 ? (
+            <ListState
+              variant="error"
+              title="Couldn't load transactions. Check your connection and try again."
+              onRetry={loadWallet}
+            />
+          ) : preview.length === 0 ? (
+            <Text
+              className="mt-4 text-center text-[14px] font-inter-regular"
+              style={{ color: "#8A8A8A" }}
+            >
+              No transactions yet.
+            </Text>
+          ) : (
+            <View className="gap-3">
+              {preview.map((t) => (
+                <TransactionRow key={t.id} txn={t} />
+              ))}
+            </View>
+          )}
         </ScrollView>
       </SafeAreaView>
     </View>

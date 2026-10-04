@@ -1,11 +1,12 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { dbPool } from "@/db/pool";
-import { orderItems, orders, products, vendorProfiles } from "@/db/schema";
+import { deliveryJobs, orderItems, orders, products, vendorProfiles } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
-import { PLATFORM_FEE_MINOR } from "@/lib/constants";
+import { COURIER_FEE_MINOR, PLATFORM_FEE_MINOR } from "@/lib/constants";
 import { applyDebit, getOrCreateWallet } from "@/lib/wallet";
 import { inngest } from "@/inngest/client";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET  /api/orders          — the caller's own orders (student side).
@@ -13,7 +14,7 @@ import { inngest } from "@/inngest/client";
  *   Pickup only this milestone — never trusts client-sent prices/fees.
  */
 
-export async function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   let user;
   try {
     user = await requireUser(request);
@@ -47,9 +48,9 @@ export async function GET(request: Request) {
     .orderBy(desc(orders.placedAt));
 
   return Response.json({ orders: rows });
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request: Request) => {
   let user;
   try {
     user = await requireUser(request);
@@ -57,11 +58,17 @@ export async function POST(request: Request) {
     return res as Response;
   }
 
-  let body: { items?: unknown };
+  let body: { items?: unknown; fulfillmentType?: unknown; dropoffNote?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
     return Response.json({ error: "Invalid body" }, { status: 400 });
+  }
+
+  const isDelivery = body.fulfillmentType === "delivery";
+  const dropoffNote = typeof body.dropoffNote === "string" ? body.dropoffNote.trim() : "";
+  if (isDelivery && !dropoffNote) {
+    return Response.json({ error: "Dropoff details are required for delivery" }, { status: 400 });
   }
 
   if (!Array.isArray(body.items) || body.items.length === 0) {
@@ -124,7 +131,8 @@ export async function POST(request: Request) {
     0,
   );
   const platformFeeMinor = PLATFORM_FEE_MINOR;
-  const totalMinor = subtotalMinor + platformFeeMinor;
+  const deliveryFeeMinor = isDelivery ? COURIER_FEE_MINOR : null;
+  const totalMinor = subtotalMinor + platformFeeMinor + (deliveryFeeMinor ?? 0);
 
   const studentWallet = await getOrCreateWallet(user.id, "student");
   const orderId = crypto.randomUUID();
@@ -151,9 +159,10 @@ export async function POST(request: Request) {
       vendorProfileId: vendor.id,
       campusId: vendor.campusId,
       status: "placed",
-      fulfillmentType: "pickup",
+      fulfillmentType: isDelivery ? "delivery" : "pickup",
       subtotalMinor,
       platformFeeMinor,
+      deliveryFeeMinor,
       totalMinor,
     });
     await tx.insert(orderItems).values(
@@ -165,6 +174,19 @@ export async function POST(request: Request) {
         quantity: i.quantity,
       })),
     );
+
+    if (isDelivery) {
+      await tx.insert(deliveryJobs).values({
+        source: "order",
+        orderId,
+        requesterProfileId: user.id,
+        vendorProfileId: vendor.id,
+        campusId: vendor.campusId,
+        status: "awaiting_vendor",
+        deliveryFeeMinor: COURIER_FEE_MINOR,
+        dropoffNote,
+      });
+    }
   });
 
   if (debitFailed) {
@@ -187,4 +209,4 @@ export async function POST(request: Request) {
 
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
   return Response.json({ order, items: lineItems }, { status: 201 });
-}
+});

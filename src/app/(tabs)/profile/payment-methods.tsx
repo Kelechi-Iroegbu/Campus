@@ -5,6 +5,8 @@ import { StatusBar } from "expo-status-bar";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useApi } from "@/lib/api";
+import { ListState } from "@/components/ListState";
+import { useTheme } from "@/lib/theme";
 
 const cardShadow = {
   shadowColor: "#1F1F1F",
@@ -25,17 +27,18 @@ type PaymentMethod = {
 };
 
 function BrandMark({ cardType }: { cardType: string | null }) {
+  const { t } = useTheme();
   const brand = (cardType ?? "").toLowerCase();
   if (brand === "visa") {
     return (
-      <View className="h-11 w-14 items-center justify-center rounded-lg border border-[#EAE0D6] bg-white">
+      <View className="h-11 w-14 items-center justify-center rounded-lg border border-[#EAE0D6] dark:border-[#2E2924] bg-white dark:bg-[#201B17]">
         <Text className="text-[14px] font-inter-bold italic text-[#1A1F71]">VISA</Text>
       </View>
     );
   }
   if (brand === "mastercard") {
     return (
-      <View className="h-11 w-14 flex-row items-center justify-center rounded-lg border border-[#EAE0D6] bg-white">
+      <View className="h-11 w-14 flex-row items-center justify-center rounded-lg border border-[#EAE0D6] dark:border-[#2E2924] bg-white dark:bg-[#201B17]">
         <View
           style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: "#EB001B" }}
         />
@@ -56,26 +59,29 @@ function BrandMark({ cardType }: { cardType: string | null }) {
     return (
       <View className="h-11 w-14 items-center justify-center rounded-lg bg-[#0B1F4B]">
         <Text className="text-[13px] font-inter-bold italic text-white">
-          <Text className="text-[#E8491D]">V</Text>erve
+          <Text className="text-[#E8491D] dark:text-[#FF6A45]">V</Text>erve
         </Text>
       </View>
     );
   }
   return (
-    <View className="h-11 w-14 items-center justify-center rounded-lg border border-[#EAE0D6] bg-white">
-      <Ionicons name="card-outline" size={20} color="#1F1F1F" />
+    <View className="h-11 w-14 items-center justify-center rounded-lg border border-[#EAE0D6] dark:border-[#2E2924] bg-white dark:bg-[#201B17]">
+      <Ionicons name="card-outline" size={20} color={t("#1F1F1F")} />
     </View>
   );
 }
 
 export default function PaymentMethods() {
+  const { t, isDark } = useTheme();
   const router = useRouter();
   const api = useApi();
   const [cards, setCards] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setLoadError(false);
     try {
       const res = await api("/api/payment-methods");
       if (!res.ok) throw new Error(`payment-methods ${res.status}`);
@@ -83,6 +89,7 @@ export default function PaymentMethods() {
       setCards(j.paymentMethods ?? []);
     } catch {
       setCards([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -128,9 +135,9 @@ export default function PaymentMethods() {
   }
 
   return (
-    <View className="flex-1 bg-[#FBF3EC]">
+    <View className="flex-1 bg-[#FBF3EC] dark:bg-[#15120F]">
       <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? "light" : "dark"} />
       <SafeAreaView className="flex-1" edges={["top"]}>
         {/* Header */}
         <View className="flex-row items-center justify-between px-3 pt-3">
@@ -138,12 +145,12 @@ export default function PaymentMethods() {
             <Pressable
               style={cardShadow}
               hitSlop={8}
-              className="h-[44px] w-[44px] items-center justify-center rounded-2xl bg-white"
+              className="h-[44px] w-[44px] items-center justify-center rounded-2xl bg-white dark:bg-[#201B17]"
               onPress={() => router.canGoBack() && router.back()}
             >
-              <Ionicons name="arrow-back" size={20} color="#1F1F1F" />
+              <Ionicons name="arrow-back" size={20} color={t("#1F1F1F")} />
             </Pressable>
-            <Text className="text-[20px] font-inter-bold text-[#1F1F1F]">Payment Methods</Text>
+            <Text className="text-[20px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">Payment Methods</Text>
           </View>
         </View>
 
@@ -153,44 +160,49 @@ export default function PaymentMethods() {
         >
           {loading ? (
             <ActivityIndicator color="#FF5A1F" style={{ marginTop: 48 }} />
+          ) : loadError ? (
+            <ListState
+              variant="error"
+              title="Couldn't load payment methods. Check your connection and try again."
+              onRetry={load}
+            />
           ) : cards.length === 0 ? (
-            <View className="items-center px-8 pt-16">
-              <Ionicons name="card-outline" size={40} color="#D8CDBF" />
-              <Text className="mt-3 text-center text-[14px] font-inter-regular text-[#8A8A8A]">
-                No saved cards yet. Top up your wallet to save a card for next time.
-              </Text>
-            </View>
+            <ListState
+              variant="empty"
+              icon="card-outline"
+              title="No saved cards yet. Top up your wallet to save a card for next time."
+            />
           ) : (
-            <View style={cardShadow} className="mx-3 mt-5 rounded-[18px] bg-white p-1">
+            <View style={cardShadow} className="mx-3 mt-5 rounded-[18px] bg-white dark:bg-[#201B17] p-1">
               {cards.map((card, index) => (
                 <Pressable
                   key={card.id}
                   onPress={() => setDefault(card.id)}
                   disabled={busyId === card.id}
                   className={`flex-row items-center gap-3 px-3 py-4 ${
-                    index > 0 ? "border-t border-[#F0EAE3]" : ""
+                    index > 0 ? "border-t border-[#F0EAE3] dark:border-[#2E2924]" : ""
                   }`}
                 >
                   <BrandMark cardType={card.cardType} />
                   <View className="flex-1 shrink">
-                    <Text className="text-[15px] font-inter-bold text-[#1F1F1F]">
+                    <Text className="text-[15px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
                       {card.cardType
                         ? `${card.cardType[0].toUpperCase()}${card.cardType.slice(1)} ending in ${card.last4 ?? "····"}`
                         : `Card ending in ${card.last4 ?? "····"}`}
                     </Text>
-                    <Text className="mt-[2px] text-[13px] font-inter-regular text-[#8A8A8A]">
+                    <Text className="mt-[2px] text-[13px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">
                       {card.expMonth && card.expYear
                         ? `Expires ${card.expMonth}/${card.expYear}`
                         : card.bank ?? ""}
                     </Text>
                   </View>
                   {card.isDefault && (
-                    <View className="rounded-full bg-[#DFF3E5] px-3 py-1">
-                      <Text className="text-[12px] font-inter-bold text-[#2E9E4F]">Default</Text>
+                    <View className="rounded-full bg-[#DFF3E5] dark:bg-[#1F3325] px-3 py-1">
+                      <Text className="text-[12px] font-inter-bold text-[#2E9E4F] dark:text-[#54C077]">Default</Text>
                     </View>
                   )}
                   <Pressable hitSlop={8} onPress={() => removeCard(card.id)}>
-                    <Ionicons name="trash-outline" size={18} color="#B8AC9C" />
+                    <Ionicons name="trash-outline" size={18} color={t("#B8AC9C")} />
                   </Pressable>
                 </Pressable>
               ))}
@@ -199,25 +211,25 @@ export default function PaymentMethods() {
 
           <Pressable
             style={cardShadow}
-            className="mx-3 mt-5 flex-row items-center gap-3 rounded-2xl bg-white p-4"
+            className="mx-3 mt-5 flex-row items-center gap-3 rounded-2xl bg-white dark:bg-[#201B17] p-4"
             onPress={() => router.push("/wallet/topup")}
           >
-            <View className="h-11 w-11 items-center justify-center rounded-[12px] bg-[#FDE9D5]">
+            <View className="h-11 w-11 items-center justify-center rounded-[12px] bg-[#FDE9D5] dark:bg-[#3A2718]">
               <Ionicons name="add" size={22} color="#FF5A1F" />
             </View>
             <View className="flex-1">
-              <Text className="text-[15px] font-inter-bold text-[#1F1F1F]">Add a new card</Text>
-              <Text className="mt-[2px] text-[13px] font-inter-regular text-[#8A8A8A]">
+              <Text className="text-[15px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">Add a new card</Text>
+              <Text className="mt-[2px] text-[13px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">
                 Cards are saved automatically the next time you top up.
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#B8AC9C" />
+            <Ionicons name="chevron-forward" size={16} color={t("#B8AC9C")} />
           </Pressable>
 
           {/* Security note */}
-          <View className="mx-3 mt-3 flex-row items-center gap-3 rounded-2xl bg-[#FBEFE7] p-4">
-            <Ionicons name="lock-closed-outline" size={20} color="#5C4A3D" />
-            <Text className="flex-1 shrink text-[13px] font-inter-regular text-[#5C4A3D]">
+          <View className="mx-3 mt-3 flex-row items-center gap-3 rounded-2xl bg-[#FBEFE7] dark:bg-[#2A2019] p-4">
+            <Ionicons name="lock-closed-outline" size={20} color={t("#5C4A3D")} />
+            <Text className="flex-1 shrink text-[13px] font-inter-regular text-[#5C4A3D] dark:text-[#C9B8A8]">
               Your payment information is secure and encrypted.
             </Text>
           </View>

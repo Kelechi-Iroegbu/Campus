@@ -1,3 +1,5 @@
+import { withApi } from "@/lib/apiHandler";
+
 /**
  * GET /api/wallet/paystack-return?reference=...&trxref=...
  *
@@ -7,7 +9,7 @@
  * `WebBrowser.openAuthSessionAsync` intercepts to close the tab. The wallet
  * is credited by the webhook, not here — this is just navigation.
  */
-export function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   const url = new URL(request.url);
   const reference =
     url.searchParams.get("reference") ?? url.searchParams.get("trxref") ?? "";
@@ -28,4 +30,4 @@ export function GET(request: Request) {
     status: 200,
     headers: { "content-type": "text/html; charset=utf-8" },
   });
-}
+});

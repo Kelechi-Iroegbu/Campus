@@ -2,12 +2,13 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { orderItems, orders } from "@/db/schema";
 import { requireVendor } from "@/lib/vendor";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET /api/vendor/orders — the caller's incoming/active orders (product vendor),
  * each with its line items.
  */
-export async function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request, { approved: true, offeringType: "product" }));
@@ -55,4 +56,4 @@ export async function GET(request: Request) {
   }));
 
   return Response.json({ orders: result });
-}
+});

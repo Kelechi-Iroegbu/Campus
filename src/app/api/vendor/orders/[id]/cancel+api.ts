@@ -4,9 +4,10 @@ import { orders } from "@/db/schema";
 import { requireVendor } from "@/lib/vendor";
 import { cancelOrder } from "@/lib/orders";
 import { sendPushToProfile } from "@/lib/push";
+import { withApi } from "@/lib/apiHandler";
 
 /** POST /api/vendor/orders/[id]/cancel — vendor decline. placed -> cancelled; refunds the student. */
-export async function POST(request: Request, { id }: Record<string, string>) {
+export const POST = withApi(async (request: Request, { id }: Record<string, string>) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request, { approved: true, offeringType: "product" }));
@@ -19,7 +20,7 @@ export async function POST(request: Request, { id }: Record<string, string>) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
-  const result = await cancelOrder(id, "vendor");
+  const result = await cancelOrder(id, "vendor", vendor.id);
   if (!result.ok) {
     return Response.json(
       { error: result.reason === "not_found" ? "Not found" : "Order can no longer be declined" },
@@ -34,4 +35,4 @@ export async function POST(request: Request, { id }: Record<string, string>) {
   });
 
   return Response.json({ ok: true });
-}
+});

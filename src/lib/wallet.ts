@@ -1,4 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
+import * as Sentry from "@sentry/react-native";
+import "@/lib/sentry-server";
 import { db } from "@/db";
 import { dbPool } from "@/db/pool";
 import { paymentMethods, paystackTransactions, wallets, walletTransactions } from "@/db/schema";
@@ -47,6 +49,8 @@ type LedgerEntry = {
     | "vendor_earning"
     | "payout"
     | "payout_reversal"
+    | "delivery_payment"
+    | "delivery_refund"
     | "adjustment";
   reference?: string;
   idempotencyKey: string;
@@ -101,7 +105,14 @@ export async function applyCredit(entry: LedgerEntry): Promise<LedgerResult> {
     return { applied: true, balanceAfterMinor: updated.balanceMinor };
   };
 
-  return entry.tx ? run(entry.tx) : dbPool.transaction(run);
+  return Sentry.startSpan(
+    { op: "wallet.credit", name: `wallet credit: ${entry.reason}`, attributes: { "wallet.reason": entry.reason } },
+    async (span) => {
+      const result = entry.tx ? await run(entry.tx) : await dbPool.transaction(run);
+      span.setAttribute("wallet.applied", result.applied);
+      return result;
+    },
+  );
 }
 
 export async function applyDebit(entry: LedgerEntry): Promise<LedgerResult> {
@@ -144,7 +155,14 @@ export async function applyDebit(entry: LedgerEntry): Promise<LedgerResult> {
     return { applied: true, balanceAfterMinor: updated.balanceMinor };
   };
 
-  return entry.tx ? run(entry.tx) : dbPool.transaction(run);
+  return Sentry.startSpan(
+    { op: "wallet.debit", name: `wallet debit: ${entry.reason}`, attributes: { "wallet.reason": entry.reason } },
+    async (span) => {
+      const result = entry.tx ? await run(entry.tx) : await dbPool.transaction(run);
+      span.setAttribute("wallet.applied", result.applied);
+      return result;
+    },
+  );
 }
 
 export type VerifyAndCreditResult =
@@ -160,7 +178,20 @@ export type VerifyAndCreditResult =
  * for environments the Paystack webhook can't reach — e.g. no public tunnel)
  * — safe for both to call the same reference, in any order.
  */
-export async function verifyAndCreditTopup(
+export function verifyAndCreditTopup(
+  reference: string,
+): Promise<VerifyAndCreditResult> {
+  return Sentry.startSpan(
+    { op: "wallet.topup", name: "verifyAndCreditTopup", attributes: { "paystack.reference": reference } },
+    async (span) => {
+      const result = await runVerifyAndCreditTopup(reference);
+      span.setAttribute("wallet.topup.status", result.status);
+      return result;
+    },
+  );
+}
+
+async function runVerifyAndCreditTopup(
   reference: string,
 ): Promise<VerifyAndCreditResult> {
   const [txn] = await db
@@ -183,6 +214,12 @@ export async function verifyAndCreditTopup(
 
   if (verified.amount !== txn.amountMinor || !txn.walletId) {
     // Amount tampering or an orphaned row — flag, don't credit.
+    Sentry.logger.error(Sentry.logger.fmt`Topup amount mismatch: ${reference}`, {
+      reference,
+      expectedMinor: txn.amountMinor,
+      verifiedMinor: verified.amount,
+      hasWallet: !!txn.walletId,
+    });
     await db
       .update(paystackTransactions)
       .set({ status: "failed", raw: verified as unknown as Record<string, unknown>, updatedAt: new Date() })
@@ -250,5 +287,12 @@ export async function verifyAndCreditTopup(
   }
 
   if (!result.applied) return { status: "already_processed" };
+
+  Sentry.logger.info(Sentry.logger.fmt`Wallet topup credited: ${reference}`, {
+    reference,
+    profileId: txn.profileId,
+    amountMinor: verified.amount,
+    channel: verified.channel,
+  });
   return { status: "credited", balanceMinor: result.balanceAfterMinor };
 }

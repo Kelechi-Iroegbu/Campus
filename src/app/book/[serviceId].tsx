@@ -20,6 +20,7 @@ import {
   type Slot,
 } from "@/lib/booking";
 import { PLATFORM_FEE_MINOR } from "@/lib/constants";
+import { useTheme } from "@/lib/theme";
 
 const INK = "#14142B";
 const SUBTLE = "#8A8A8A";
@@ -54,6 +55,7 @@ function monthKey(d: Date) {
 }
 
 export default function BookService() {
+  const { t, isDark } = useTheme();
   const router = useRouter();
   const api = useApi();
   const { serviceId } = useLocalSearchParams<{ serviceId: string }>();
@@ -178,7 +180,7 @@ export default function BookService() {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center" style={{ backgroundColor: SCREEN_BG }}>
+      <View className="flex-1 items-center justify-center" style={{ backgroundColor: t(SCREEN_BG) }}>
         <Stack.Screen options={{ headerShown: false }} />
         <ActivityIndicator color={PINK} />
       </View>
@@ -187,10 +189,10 @@ export default function BookService() {
 
   if (!service || !service.isActive || vendorStatus !== "approved") {
     return (
-      <View className="flex-1" style={{ backgroundColor: SCREEN_BG }}>
+      <View className="flex-1" style={{ backgroundColor: t(SCREEN_BG) }}>
         <Stack.Screen options={{ headerShown: false }} />
         <SafeAreaView className="flex-1 items-center justify-center px-8" edges={["top"]}>
-          <Text className="text-[15px] font-inter-semibold" style={{ color: INK }}>
+          <Text className="text-[15px] font-inter-semibold" style={{ color: t(INK) }}>
             {service ? "This service isn't available right now" : "Service not found"}
           </Text>
           <Pressable onPress={() => router.back()} className="mt-4">
@@ -205,31 +207,31 @@ export default function BookService() {
 
   if (done) {
     return (
-      <View className="flex-1" style={{ backgroundColor: SCREEN_BG }}>
+      <View className="flex-1" style={{ backgroundColor: t(SCREEN_BG) }}>
         <Stack.Screen options={{ headerShown: false }} />
-        <StatusBar style="dark" />
+        <StatusBar style={isDark ? "light" : "dark"} />
         <SafeAreaView className="flex-1 px-6" edges={["top", "bottom"]}>
           <View className="flex-1 items-center justify-center">
             <View
               className="h-20 w-20 items-center justify-center rounded-full"
-              style={{ backgroundColor: "#E4F4E6" }}
+              style={{ backgroundColor: t("#E4F4E6") }}
             >
               <Ionicons name="checkmark" size={40} color="#1F9D4D" />
             </View>
             <Text
               className="mt-5 text-[22px] font-inter-bold"
-              style={{ color: INK }}
+              style={{ color: t(INK) }}
             >
               Booking confirmed
             </Text>
             <Text
               className="mt-2 text-center text-[14px] font-inter-regular"
-              style={{ color: SUBTLE }}
+              style={{ color: t(SUBTLE) }}
             >
               {vendorName}
             </Text>
 
-            <View style={cardStyle} className="mt-6 w-full p-5">
+            <View style={[cardStyle, { backgroundColor: t("#FFFFFF"), borderColor: t(LINE) }]} className="mt-6 w-full p-5">
               <Row label="Service" value={service.name} />
               <Row label="When" value={formatDayLong(done.date)} />
               <Row label="Time" value={`${format12(done.start)} – ${format12(done.end)}`} />
@@ -238,7 +240,7 @@ export default function BookService() {
 
             <Text
               className="mt-4 text-center text-[12px] font-inter-regular"
-              style={{ color: SUBTLE }}
+              style={{ color: t(SUBTLE) }}
             >
               You&rsquo;ll get a reminder 24 hours and 1 hour before.
             </Text>
@@ -289,17 +291,17 @@ export default function BookService() {
   };
 
   return (
-    <View className="flex-1" style={{ backgroundColor: SCREEN_BG }}>
+    <View className="flex-1" style={{ backgroundColor: t(SCREEN_BG) }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? "light" : "dark"} />
 
       <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
         {/* header */}
         <View className="flex-row items-center gap-3 px-4 pb-2 pt-2">
           <Pressable onPress={() => router.back()} hitSlop={10}>
-            <Ionicons name="chevron-back" size={26} color={INK} />
+            <Ionicons name="chevron-back" size={26} color={t(INK)} />
           </Pressable>
-          <Text className="text-[17px] font-inter-bold" style={{ color: INK }}>
+          <Text className="text-[17px] font-inter-bold" style={{ color: t(INK) }}>
             Book appointment
           </Text>
         </View>
@@ -313,17 +315,17 @@ export default function BookService() {
           <View className="mt-2 flex-row items-center gap-3">
             <View
               className="h-12 w-12 items-center justify-center rounded-full"
-              style={{ backgroundColor: "#FCE7EC" }}
+              style={{ backgroundColor: t("#FCE7EC") }}
             >
               <Ionicons name="cut-outline" size={22} color={PINK} />
             </View>
             <View className="flex-1">
-              <Text className="text-[15px] font-inter-bold" style={{ color: INK }}>
+              <Text className="text-[15px] font-inter-bold" style={{ color: t(INK) }}>
                 {vendorName}
               </Text>
               <Text
                 className="mt-0.5 text-[12.5px] font-inter-regular"
-                style={{ color: SUBTLE }}
+                style={{ color: t(SUBTLE) }}
               >
                 {service.name} · {service.durationMinutes} min ·{" "}
                 {formatNaira(service.priceMinor)}
@@ -333,18 +335,18 @@ export default function BookService() {
 
           <View
             className="mt-3 self-start rounded-full px-3 py-1"
-            style={{ backgroundColor: "#FCE7EC" }}
+            style={{ backgroundColor: t("#FCE7EC") }}
           >
             <Text
               className="text-[11.5px] font-inter-semibold"
-              style={{ color: "#C7345F" }}
+              style={{ color: t("#C7345F") }}
             >
               One appointment per time slot
             </Text>
           </View>
 
           {/* calendar */}
-          <View style={cardStyle} className="mt-4 p-4">
+          <View style={[cardStyle, { backgroundColor: t("#FFFFFF"), borderColor: t(LINE) }]} className="mt-4 p-4">
             <MonthCalendar
               monthDate={monthDate}
               onMonthDelta={(d) =>
@@ -370,14 +372,14 @@ export default function BookService() {
             <>
               <Text
                 className="mt-6 text-[16px] font-inter-bold"
-                style={{ color: INK }}
+                style={{ color: t(INK) }}
               >
                 {formatDayLong(selDate)}
               </Text>
 
               <View
                 className="mt-3 flex-row self-start rounded-full p-1"
-                style={{ backgroundColor: "#F1ECE1" }}
+                style={{ backgroundColor: t("#F1ECE1") }}
               >
                 {(["am", "pm"] as const).map((p) => (
                   <Pressable
@@ -389,12 +391,12 @@ export default function BookService() {
                     className="rounded-full px-4 py-1.5"
                     style={{
                       backgroundColor:
-                        period === p ? "#FFFFFF" : "transparent",
+                        period === p ? t("#FFFFFF") : "transparent",
                     }}
                   >
                     <Text
                       className="text-[12.5px] font-inter-bold"
-                      style={{ color: period === p ? PINK : SUBTLE }}
+                      style={{ color: period === p ? PINK : t(SUBTLE) }}
                     >
                       {p === "am"
                         ? `Morning${amCount ? ` (${amCount})` : ""}`
@@ -423,13 +425,13 @@ export default function BookService() {
 
               <Text
                 className="mt-4 text-[11px] font-inter-regular"
-                style={{ color: SUBTLE }}
+                style={{ color: t(SUBTLE) }}
               >
                 Each booking holds {service.durationMinutes} min + a 2-minute buffer.
               </Text>
               <Text
                 className="mt-1 text-[11px] font-inter-regular"
-                style={{ color: SUBTLE }}
+                style={{ color: t(SUBTLE) }}
               >
                 {formatNaira(service.priceMinor)} service + {formatNaira(PLATFORM_FEE_MINOR)}{" "}
                 platform fee
@@ -438,7 +440,7 @@ export default function BookService() {
           ) : (
             <Text
               className="mt-6 text-[13px] font-inter-regular"
-              style={{ color: SUBTLE }}
+              style={{ color: t(SUBTLE) }}
             >
               Pick a highlighted day to see open times.
             </Text>
@@ -448,20 +450,20 @@ export default function BookService() {
         {/* confirm bar */}
         <View
           className="flex-row items-center gap-3 px-4 pb-2 pt-3"
-          style={{ borderTopWidth: 1, borderTopColor: LINE }}
+          style={{ borderTopWidth: 1, borderTopColor: t(LINE) }}
         >
           <View className="flex-1">
             {canConfirm ? (
               <>
                 <Text
                   className="text-[14px] font-inter-bold"
-                  style={{ color: INK }}
+                  style={{ color: t(INK) }}
                 >
                   {format12(selTime!)}
                 </Text>
                 <Text
                   className="text-[12px] font-inter-regular"
-                  style={{ color: SUBTLE }}
+                  style={{ color: t(SUBTLE) }}
                 >
                   {formatDayShort(selDate!)}
                 </Text>
@@ -469,7 +471,7 @@ export default function BookService() {
             ) : (
               <Text
                 className="text-[13px] font-inter-regular"
-                style={{ color: SUBTLE }}
+                style={{ color: t(SUBTLE) }}
               >
                 Pick a day and time
               </Text>
@@ -517,19 +519,20 @@ function Row({
   value: string;
   last?: boolean;
 }) {
+  const { t } = useTheme();
   return (
     <View
       className="flex-row items-center justify-between py-2.5"
       style={
-        last ? undefined : { borderBottomWidth: 1, borderBottomColor: LINE }
+        last ? undefined : { borderBottomWidth: 1, borderBottomColor: t(LINE) }
       }
     >
-      <Text className="text-[13px] font-inter-regular" style={{ color: SUBTLE }}>
+      <Text className="text-[13px] font-inter-regular" style={{ color: t(SUBTLE) }}>
         {label}
       </Text>
       <Text
         className="text-[13.5px] font-inter-semibold"
-        style={{ color: INK }}
+        style={{ color: t(INK) }}
       >
         {value}
       </Text>

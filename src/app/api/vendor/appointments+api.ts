@@ -2,9 +2,10 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { appointments, profiles } from "@/db/schema";
 import { requireVendor } from "@/lib/vendor";
+import { withApi } from "@/lib/apiHandler";
 
 /** GET /api/vendor/appointments — the caller's own service bookings. */
-export async function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request, { offeringType: "service" }));
@@ -38,4 +39,4 @@ export async function GET(request: Request) {
     .orderBy(desc(appointments.scheduledStart));
 
   return Response.json({ appointments: rows });
-}
+});

@@ -1,5 +1,6 @@
+import { SavedAddressChips } from "@/components/SavedAddressChips";
 import { useCallback, useState } from "react";
-import { LayoutChangeEvent, Pressable, ScrollView, Text, View } from "react-native";
+import { LayoutChangeEvent, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useRouter } from "expo-router";
@@ -16,16 +17,28 @@ import {
   MIN_CARD_HEIGHT,
 } from "@/components/checkout/constants";
 import { OrderRecapCard } from "@/components/checkout/OrderRecapCard";
-import { useCartStore, cartSubtotalMinor } from "@/lib/cartStore";
-import { PLATFORM_FEE_MINOR } from "@/lib/constants";
+import { useCartStore, cartSubtotalMinor, type FulfillmentType } from "@/lib/cartStore";
+import { COURIER_FEE_MINOR, PLATFORM_FEE_MINOR } from "@/lib/constants";
+import { useTheme } from "@/lib/theme";
 
 function formatNaira(amount: number) {
   return `₦${amount.toLocaleString()}`;
 }
 
 export default function Checkout() {
+  const { t, isDark } = useTheme();
   const router = useRouter();
-  const { vendorId, vendorName, items, updateQuantity, removeItem } = useCartStore();
+  const {
+    vendorId,
+    vendorName,
+    items,
+    updateQuantity,
+    removeItem,
+    fulfillmentType,
+    setFulfillmentType,
+    dropoffNote,
+    setDropoffNote,
+  } = useCartStore();
   const [listHeight, setListHeight] = useState(0);
 
   const onListLayout = useCallback((e: LayoutChangeEvent) => {
@@ -48,7 +61,10 @@ export default function Checkout() {
   const subtotalMinor = cartSubtotalMinor(items);
   const subtotal = subtotalMinor / 100;
   const platformFee = PLATFORM_FEE_MINOR / 100;
-  const total = subtotal + platformFee;
+  const isDelivery = fulfillmentType === "delivery";
+  const deliveryFee = COURIER_FEE_MINOR / 100;
+  const total = subtotal + platformFee + (isDelivery ? deliveryFee : 0);
+  const canPay = !isDelivery || dropoffNote.trim().length > 0;
 
   const totalGap = CARD_GAP * Math.max(0, cart.length - 1);
   const needsScroll = listHeight > 0 && cart.length * MIN_CARD_HEIGHT + totalGap > listHeight;
@@ -62,19 +78,19 @@ export default function Checkout() {
 
   if (cart.length === 0) {
     return (
-      <View className="flex-1 bg-[#FBF3EC]">
+      <View className="flex-1 bg-[#FBF3EC] dark:bg-[#15120F]">
         <Stack.Screen options={{ headerShown: false }} />
-        <StatusBar style="dark" />
+        <StatusBar style={isDark ? "light" : "dark"} />
         <SafeAreaView className="flex-1 items-center justify-center px-8" edges={["top", "bottom"]}>
           <Pressable
             onPress={() => router.back()}
             hitSlop={8}
             className="absolute left-3 top-3"
           >
-            <Ionicons name="chevron-back" size={24} color="#1F1F1F" />
+            <Ionicons name="chevron-back" size={24} color={t("#1F1F1F")} />
           </Pressable>
-          <Ionicons name="cart-outline" size={40} color="#D8CDBF" />
-          <Text className="mt-3 text-center text-[15px] font-inter-medium text-[#8A8A8A]">
+          <Ionicons name="cart-outline" size={40} color={t("#D8CDBF")} />
+          <Text className="mt-3 text-center text-[15px] font-inter-medium text-[#8A8A8A] dark:text-[#A39A91]">
             Your cart is empty.
           </Text>
           <Pressable
@@ -90,19 +106,19 @@ export default function Checkout() {
   }
 
   return (
-    <View className="flex-1 bg-[#FBF3EC]">
+    <View className="flex-1 bg-[#FBF3EC] dark:bg-[#15120F]">
       <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? "light" : "dark"} />
 
       <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
         <View className="flex-row items-start justify-between px-3 pt-3">
           <View className="flex-row items-start gap-3">
             <Pressable onPress={() => router.back()} hitSlop={8} className="pt-1">
-              <Ionicons name="chevron-back" size={24} color="#1F1F1F" />
+              <Ionicons name="chevron-back" size={24} color={t("#1F1F1F")} />
             </Pressable>
             <View>
-              <Text className="text-[22px] font-inter-bold text-[#1F1F1F]">Your Cart</Text>
-              <Text className="mt-1 text-[13px] font-inter-regular text-[#8A8A8A]">
+              <Text className="text-[22px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">Your Cart</Text>
+              <Text className="mt-1 text-[13px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">
                 {itemCount} items
               </Text>
             </View>
@@ -160,17 +176,61 @@ export default function Checkout() {
         </View>
 
         <View>
+          <View className="mx-3 mt-3 flex-row overflow-hidden rounded-2xl border border-[#EFEAE2] dark:border-[#2E2924] bg-white dark:bg-[#201B17] p-1">
+            {(["pickup", "delivery"] as FulfillmentType[]).map((type) => {
+              const active = fulfillmentType === type;
+              return (
+                <Pressable
+                  key={type}
+                  onPress={() => setFulfillmentType(type)}
+                  className="flex-1 items-center justify-center rounded-xl py-2.5"
+                  style={{ backgroundColor: active ? ORANGE : "transparent" }}
+                >
+                  <Text
+                    className="text-[14px] font-inter-bold"
+                    style={{ color: active ? "#FFFFFF" : t("#8A8A8A") }}
+                  >
+                    {type === "pickup" ? "Pickup" : `Delivery · ${formatNaira(deliveryFee)}`}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {isDelivery ? (
+            <View
+              className="mx-3 mt-3 rounded-2xl border border-[#EFEAE2] dark:border-[#2E2924] bg-white dark:bg-[#201B17] px-4 py-3"
+            >
+              <Text className="mb-1.5 text-[12.5px] font-inter-semibold text-[#8A8A8A] dark:text-[#A39A91]">
+                Dropoff details
+              </Text>
+              <SavedAddressChips onPick={setDropoffNote} />
+              <TextInput
+                value={dropoffNote}
+                onChangeText={setDropoffNote}
+                placeholder="e.g. Block C, Room 214 — call on arrival"
+                placeholderTextColor={t("#B4AEA4")}
+                multiline
+                className="text-[14px] font-inter-regular text-[#1F1F1F] dark:text-[#F3EEE8]"
+                style={{ minHeight: 40 }}
+              />
+            </View>
+          ) : null}
+
           <OrderRecapCard
             vendorName={vendorName ?? ""}
             subtotal={subtotal}
             platformFee={platformFee}
+            deliveryFee={isDelivery ? deliveryFee : undefined}
             total={total}
+            fulfillmentType={fulfillmentType}
           />
 
           <Pressable
             onPress={handlePay}
+            disabled={!canPay}
             className="mx-3 mt-4 items-center justify-center rounded-[16px]"
-            style={{ backgroundColor: ORANGE, height: 58 }}
+            style={{ backgroundColor: ORANGE, height: 58, opacity: canPay ? 1 : 0.5 }}
           >
             <Text className="text-[16px] font-inter-bold text-white">Pay {formatNaira(total)}</Text>
           </Pressable>

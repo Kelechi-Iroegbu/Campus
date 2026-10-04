@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,7 +12,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { useApi } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useImageUpload } from "@/lib/useImageUpload";
@@ -39,6 +39,11 @@ const cardStyle = {
 };
 
 type IconName = ComponentProps<typeof Ionicons>["name"];
+
+function maskAccountNumber(accountNumber: string | null): string {
+  if (!accountNumber) return "";
+  return accountNumber.length <= 4 ? accountNumber : `••${accountNumber.slice(-4)}`;
+}
 
 function StatTile({
   label,
@@ -256,10 +261,40 @@ export default function VendorProfile() {
   const { pickAndUpload, uploading, error: uploadError } = useImageUpload();
   const [storeOpen, setStoreOpen] = useState(true);
   const [togglingStore, setTogglingStore] = useState(false);
+  const [bankDetails, setBankDetails] = useState<{
+    bankName: string;
+    bankAccountNumber: string;
+  } | null>(null);
 
   useEffect(() => {
     if (me?.vendor) setStoreOpen(me.vendor.isOpen);
   }, [me?.vendor]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const res = await api("/api/vendor/bank-details");
+          if (!res.ok || cancelled) return;
+          const data = (await res.json()) as {
+            bankName: string | null;
+            bankAccountNumber: string | null;
+          };
+          setBankDetails(
+            data.bankName && data.bankAccountNumber
+              ? { bankName: data.bankName, bankAccountNumber: data.bankAccountNumber }
+              : null,
+          );
+        } catch {
+          // keep showing whatever was last loaded
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [api]),
+  );
 
   const isProductVendor = me?.vendor?.offeringType === "product";
   const displayPhoto = isProductVendor
@@ -338,7 +373,7 @@ export default function VendorProfile() {
               Profile
             </Text>
             <Pressable
-              
+              onPress={() => Alert.alert("Coming soon", "Settings aren't built yet.")}
               className="h-11 w-11 items-center justify-center rounded-2xl"
               style={{
                 backgroundColor: "#FFFFFF",
@@ -380,7 +415,7 @@ export default function VendorProfile() {
                   style={{ fontSize: 19, color: HEADING }}
                   numberOfLines={1}
                 >
-                  Mama Ngozi&apos;s Kitchen
+                  {me?.vendor?.displayName ?? "Your store"}
                 </Text>
                 <View className="mt-1.5 flex-row items-center gap-1.5">
                   <Ionicons name="star" size={14} color="#F5A623" />
@@ -488,7 +523,7 @@ export default function VendorProfile() {
               first
               icon="storefront-outline"
               label="Business information"
-              onPress={go("/vendor-application/kyc-business")}
+              onPress={go("/vendor/profile/business-info")}
             />
             <Row
               icon="image-outline"
@@ -508,10 +543,12 @@ export default function VendorProfile() {
                   className="text-[13px] font-inter-medium"
                   style={{ color: SUBTLE }}
                 >
-                  GTBank ••4821
+                  {bankDetails
+                    ? `${bankDetails.bankName} ${maskAccountNumber(bankDetails.bankAccountNumber)}`
+                    : "Add account"}
                 </Text>
               }
-              
+              onPress={go("/vendor/profile/bank-details")}
             />
           </MenuCard>
 
@@ -538,12 +575,12 @@ export default function VendorProfile() {
                   </Text>
                 </View>
               }
-              onPress={go("/vendor-application/kyc")}
+              onPress={go("/vendor/profile/verification")}
             />
             <Row
               icon="notifications-outline"
               label="Notifications"
-              
+              onPress={go("/notifications")}
             />
             <Row
               icon="lock-closed-outline"
@@ -576,12 +613,12 @@ export default function VendorProfile() {
             <Row
               icon="help-circle-outline"
               label="Help & Support"
-              
+              onPress={go("/profile/help-support")}
             />
             <Row
               icon="document-text-outline"
               label="Terms & Privacy"
-              
+
             />
           </MenuCard>
 

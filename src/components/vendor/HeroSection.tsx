@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { FloatingIconButton } from "./FloatingIconButton";
 import { ORANGE } from "./theme";
+import { useTheme } from "@/lib/theme";
 
 // Matches the reference's own hero crop proportions (829 x 337).
 const HERO_ASPECT_RATIO = 829 / 337;
@@ -15,6 +16,7 @@ export function HeroSection({
   image: number;
   onBack: () => void;
 }) {
+  const { t } = useTheme();
   const [isFavorite, setIsFavorite] = useState(false);
 
   return (
@@ -27,7 +29,7 @@ export function HeroSection({
       <SafeAreaView edges={["top"]} className="absolute inset-x-0 top-0">
         <View className="flex-row items-center justify-between px-4 pt-2">
           <FloatingIconButton onPress={onBack}>
-            <Ionicons name="arrow-back" size={17} color="#1F1F1F" />
+            <Ionicons name="arrow-back" size={17} color={t("#1F1F1F")} />
           </FloatingIconButton>
           <View className="flex-row items-center gap-2">
             <FloatingIconButton onPress={() => setIsFavorite((v) => !v)}>
@@ -38,7 +40,7 @@ export function HeroSection({
               />
             </FloatingIconButton>
             <FloatingIconButton>
-              <Ionicons name="share-social-outline" size={15} color="#1F1F1F" />
+              <Ionicons name="share-social-outline" size={15} color={t("#1F1F1F")} />
             </FloatingIconButton>
           </View>
         </View>

@@ -1,16 +1,18 @@
 import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { useTheme } from "@/lib/theme";
 
 const INACTIVE = "#1F1F1F";
 const ACTIVE = "#FF6B4A";
 
 export default function TabsLayout() {
+  const { t } = useTheme();
   return (
     <NativeTabs
-      backgroundColor="#FFFFFF"
+      backgroundColor={t("#FFFFFF")}
       labelVisibilityMode="labeled"
-      iconColor={{ default: INACTIVE, selected: ACTIVE }}
+      iconColor={{ default: t(INACTIVE), selected: ACTIVE }}
       labelStyle={{
-        default: { color: INACTIVE, fontSize: 11 },
+        default: { color: t(INACTIVE), fontSize: 11 },
         selected: { color: ACTIVE, fontSize: 11 },
       }}
     >

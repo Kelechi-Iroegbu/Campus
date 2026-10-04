@@ -6,6 +6,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-rou
 import { Ionicons } from "@expo/vector-icons";
 import { useApi } from "@/lib/api";
 import { formatNaira } from "@/lib/booking";
+import { useTheme } from "@/lib/theme";
 
 const cardShadow = {
   shadowColor: "#1F1F1F",
@@ -15,11 +16,20 @@ const cardShadow = {
   elevation: 2,
 };
 
-const STEPS = [
+const PICKUP_STEPS = [
   { key: "placed", label: "Confirmed", icon: "checkmark" },
   { key: "accepted", label: "Preparing", icon: "restaurant-outline" },
   { key: "ready", label: "Ready", icon: "time-outline" },
   { key: "completed", label: "Picked up", icon: "bag-handle-outline" },
+] as const;
+
+const DELIVERY_STEPS = [
+  { key: "placed", label: "Placed", icon: "checkmark" },
+  { key: "preparing", label: "Preparing", icon: "restaurant-outline" },
+  { key: "finding", label: "Finding a courier", icon: "search-outline" },
+  { key: "assigned", label: "Courier assigned", icon: "bicycle-outline" },
+  { key: "picked_up", label: "Picked up", icon: "cube-outline" },
+  { key: "delivered", label: "Delivered", icon: "checkmark-done-outline" },
 ] as const;
 
 function activeStepIndex(status: string) {
@@ -29,23 +39,44 @@ function activeStepIndex(status: string) {
   return 0; // placed
 }
 
+/** Combined order+deliveryJob state machine — see PLAN.md Milestone 8. */
+function deliveryStepIndex(orderStatus: string, jobStatus: string) {
+  if (jobStatus === "delivered") return 5;
+  if (jobStatus === "picked_up") return 4;
+  if (jobStatus === "claimed") return 3;
+  if (jobStatus === "open") return 2; // vendor accepted, courier search underway
+  if (orderStatus === "accepted") return 1;
+  return 0; // placed, awaiting vendor accept
+}
+
+type DeliveryJob = {
+  id: string;
+  status: "awaiting_vendor" | "open" | "claimed" | "picked_up" | "delivered" | "failed" | "cancelled";
+  deliveryFeeMinor: number;
+  dropoffNote: string | null;
+  failedReason: string | null;
+};
+
 type OrderDetail = {
   order: {
     id: string;
     status: "placed" | "accepted" | "ready" | "completed" | "cancelled";
     subtotalMinor: number;
     platformFeeMinor: number;
+    deliveryFeeMinor: number | null;
     totalMinor: number;
     placedAt: string;
   };
   vendorName: string;
   vendorCoverPhotoUrl: string | null;
   items: { id: string; productName: string; unitPriceMinor: number; quantity: number }[];
+  deliveryJob: DeliveryJob | null;
 };
 
 const POLL_MS = 12_000;
 
 export default function OrderTracking() {
+  const { t, isDark } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const api = useApi();
@@ -104,7 +135,7 @@ export default function OrderTracking() {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-[#FBF3EC]">
+      <View className="flex-1 items-center justify-center bg-[#FBF3EC] dark:bg-[#15120F]">
         <Stack.Screen options={{ headerShown: false }} />
         <ActivityIndicator color="#FF6B4A" />
       </View>
@@ -113,17 +144,17 @@ export default function OrderTracking() {
 
   if (notFound || !data) {
     return (
-      <View className="flex-1 bg-[#FBF3EC]">
+      <View className="flex-1 bg-[#FBF3EC] dark:bg-[#15120F]">
         <Stack.Screen options={{ headerShown: false }} />
-        <StatusBar style="dark" />
+        <StatusBar style={isDark ? "light" : "dark"} />
         <SafeAreaView className="flex-1" edges={["top"]}>
           <View className="flex-row items-center px-4 pt-3">
             <Pressable onPress={() => router.back()} hitSlop={8}>
-              <Ionicons name="chevron-back" size={24} color="#1F1F1F" />
+              <Ionicons name="chevron-back" size={24} color={t("#1F1F1F")} />
             </Pressable>
           </View>
           <View className="flex-1 items-center justify-center px-6">
-            <Text className="text-[15px] font-inter-semibold text-[#1F1F1F]">
+            <Text className="text-[15px] font-inter-semibold text-[#1F1F1F] dark:text-[#F3EEE8]">
               Order not found
             </Text>
           </View>
@@ -132,27 +163,31 @@ export default function OrderTracking() {
     );
   }
 
-  const { order, vendorName, vendorCoverPhotoUrl, items } = data;
+  const { order, vendorName, vendorCoverPhotoUrl, items, deliveryJob } = data;
   const isCompleted = order.status === "completed";
   const isCancelled = order.status === "cancelled";
-  const activeIndex = activeStepIndex(order.status);
+  const deliveryFailed = deliveryJob?.status === "failed" || deliveryJob?.status === "cancelled";
+  const steps = deliveryJob ? DELIVERY_STEPS : PICKUP_STEPS;
+  const activeIndex = deliveryJob
+    ? deliveryStepIndex(order.status, deliveryJob.status)
+    : activeStepIndex(order.status);
 
   return (
-    <View className="flex-1 bg-[#FBF3EC]">
+    <View className="flex-1 bg-[#FBF3EC] dark:bg-[#15120F]">
       <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? "light" : "dark"} />
       <SafeAreaView className="flex-1" edges={["top"]}>
         {/* Header */}
         <View className="flex-row items-center gap-3 px-3 pt-3">
           <Pressable
             style={cardShadow}
             hitSlop={8}
-            className="h-[44px] w-[44px] items-center justify-center rounded-2xl bg-white"
+            className="h-[44px] w-[44px] items-center justify-center rounded-2xl bg-white dark:bg-[#201B17]"
             onPress={() => router.canGoBack() && router.back()}
           >
-            <Ionicons name="arrow-back" size={20} color="#1F1F1F" />
+            <Ionicons name="arrow-back" size={20} color={t("#1F1F1F")} />
           </Pressable>
-          <Text className="text-[22px] font-inter-bold text-[#1F1F1F]">Order Tracking</Text>
+          <Text className="text-[22px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">Order Tracking</Text>
         </View>
 
         <ScrollView
@@ -160,15 +195,15 @@ export default function OrderTracking() {
           contentContainerStyle={{ paddingBottom: 32 }}
         >
           {/* Order meta */}
-          <View className="mx-3 mt-4 flex-row items-center gap-3 rounded-2xl bg-[#FBEFE7] p-3">
-            <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#FCDCC4]">
+          <View className="mx-3 mt-4 flex-row items-center gap-3 rounded-2xl bg-[#FBEFE7] dark:bg-[#2A2019] p-3">
+            <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#FCDCC4] dark:bg-[#41291A]">
               <Ionicons name="bag-handle" size={22} color="#FF5A1F" />
             </View>
             <View>
-              <Text className="text-[16px] font-inter-bold text-[#1F1F1F]">
+              <Text className="text-[16px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
                 Order #{order.id.slice(0, 8)}
               </Text>
-              <Text className="mt-[2px] text-[13px] font-inter-regular text-[#8A7A6E]">
+              <Text className="mt-[2px] text-[13px] font-inter-regular text-[#8A7A6E] dark:text-[#B0A296]">
                 {new Date(order.placedAt).toLocaleString()}
               </Text>
             </View>
@@ -177,27 +212,41 @@ export default function OrderTracking() {
           {/* Status hero */}
           <View
             className="mx-3 mt-4 rounded-[22px] p-5"
-            style={{ backgroundColor: isCancelled ? "#FCE7EC" : "#FBEFE7" }}
+            style={{ backgroundColor: isCancelled || deliveryFailed ? t("#FCE7EC") : t("#FBEFE7") }}
           >
             <View className="flex-row items-start justify-between">
               <View className="flex-1 shrink pr-3">
-                <Text className="text-[24px] font-inter-bold leading-8 text-[#1F1F1F]">
+                <Text className="text-[24px] font-inter-bold leading-8 text-[#1F1F1F] dark:text-[#F3EEE8]">
                   {isCancelled
                     ? "Order cancelled"
-                    : isCompleted
-                      ? "Your order is complete 🎉"
-                      : order.status === "ready"
-                        ? "Ready for pickup!"
-                        : order.status === "accepted"
-                          ? "Vendor is preparing your order 😊"
-                          : "Order placed — waiting for the vendor to accept"}
+                    : deliveryFailed
+                      ? "Delivery couldn't be completed"
+                      : isCompleted
+                        ? deliveryJob
+                          ? "Delivered 🎉"
+                          : "Your order is complete 🎉"
+                        : order.status === "ready"
+                          ? "Ready for pickup!"
+                          : deliveryJob?.status === "picked_up"
+                            ? "On its way to you 🛵"
+                            : deliveryJob?.status === "claimed"
+                              ? "Courier assigned"
+                              : deliveryJob?.status === "open"
+                                ? "Finding you a courier…"
+                                : order.status === "accepted"
+                                  ? "Vendor is preparing your order 😊"
+                                  : "Order placed — waiting for the vendor to accept"}
                 </Text>
-                <Text className="mt-2 text-[14px] font-inter-regular text-[#8A7A6E]">
+                <Text className="mt-2 text-[14px] font-inter-regular text-[#8A7A6E] dark:text-[#B0A296]">
                   {isCancelled
                     ? "You've been refunded in full."
-                    : isCompleted
-                      ? "Thanks for ordering with CampUs. Enjoy your meal!"
-                      : "We'll notify you when it's ready for pickup."}
+                    : deliveryFailed
+                      ? "The delivery fee has been refunded to your wallet."
+                      : isCompleted
+                        ? "Thanks for ordering with CampUs. Enjoy your meal!"
+                        : deliveryJob
+                          ? "We'll notify you at each step of the delivery."
+                          : "We'll notify you when it's ready for pickup."}
                 </Text>
               </View>
               <View
@@ -205,22 +254,35 @@ export default function OrderTracking() {
                   width: 84,
                   height: 84,
                   borderRadius: 42,
-                  backgroundColor: isCancelled ? "#F7D2DC" : isCompleted ? "#DFF3E5" : "#FCDCC4",
+                  backgroundColor:
+                    isCancelled || deliveryFailed
+                      ? t("#F7D2DC")
+                      : isCompleted
+                        ? t("#DFF3E5")
+                        : t("#FCDCC4"),
                 }}
                 className="items-center justify-center"
               >
                 <Ionicons
-                  name={isCancelled ? "close-circle" : isCompleted ? "checkmark-done" : "restaurant"}
+                  name={
+                    isCancelled || deliveryFailed
+                      ? "close-circle"
+                      : isCompleted
+                        ? "checkmark-done"
+                        : deliveryJob
+                          ? "bicycle"
+                          : "restaurant"
+                  }
                   size={38}
-                  color={isCancelled ? "#C7345F" : isCompleted ? "#2E9E4F" : "#FF5A1F"}
+                  color={isCancelled || deliveryFailed ? t("#C7345F") : isCompleted ? t("#2E9E4F") : "#FF5A1F"}
                 />
               </View>
             </View>
 
-            {/* Stepper — hidden for cancelled orders */}
-            {!isCancelled ? (
+            {/* Stepper — hidden for cancelled orders or a failed delivery */}
+            {!isCancelled && !deliveryFailed ? (
               <View className="mt-6 flex-row items-start">
-                {STEPS.map((step, index) => {
+                {steps.map((step, index) => {
                   const isDone = index < activeIndex;
                   const isActive = index === activeIndex;
                   const circleColor = isDone || isActive ? "#FF5A1F" : "#C9BFB2";
@@ -243,22 +305,22 @@ export default function OrderTracking() {
                             borderRadius: 19,
                             borderWidth: 2,
                             borderColor: circleColor,
-                            backgroundColor: isActive ? "#FF5A1F" : "#FBEFE7",
+                            backgroundColor: isActive ? "#FF5A1F" : t("#FBEFE7"),
                           }}
                           className="items-center justify-center"
                         >
                           <Ionicons
                             name={isDone ? "checkmark" : (step.icon as any)}
                             size={16}
-                            color={isActive ? "#FFFFFF" : isDone ? "#FF5A1F" : "#B8AC9C"}
+                            color={isActive ? "#FFFFFF" : isDone ? "#FF5A1F" : t("#B8AC9C")}
                           />
                         </View>
                         <View
                           style={{
-                            flex: index === STEPS.length - 1 ? 0 : 1,
+                            flex: index === steps.length - 1 ? 0 : 1,
                             height: 2,
                             backgroundColor:
-                              index === STEPS.length - 1 ? "transparent" : lineColor,
+                              index === steps.length - 1 ? "transparent" : lineColor,
                           }}
                         />
                       </View>
@@ -268,8 +330,8 @@ export default function OrderTracking() {
                           isActive
                             ? "font-inter-bold text-[#FF5A1F]"
                             : isDone
-                              ? "font-inter-semibold text-[#1F1F1F]"
-                              : "font-inter-regular text-[#B8AC9C]"
+                              ? "font-inter-semibold text-[#1F1F1F] dark:text-[#F3EEE8]"
+                              : "font-inter-regular text-[#B8AC9C] dark:text-[#8C8278]"
                         }`}
                       >
                         {step.label}
@@ -286,9 +348,9 @@ export default function OrderTracking() {
               onPress={cancelOrder}
               disabled={cancelling}
               style={cardShadow}
-              className="mx-3 mt-4 items-center rounded-2xl bg-white py-3"
+              className="mx-3 mt-4 items-center rounded-2xl bg-white dark:bg-[#201B17] py-3"
             >
-              <Text className="text-[14px] font-inter-bold text-[#C7345F]">
+              <Text className="text-[14px] font-inter-bold text-[#C7345F] dark:text-[#F0668F]">
                 {cancelling ? "Cancelling…" : "Cancel order"}
               </Text>
             </Pressable>
@@ -297,7 +359,7 @@ export default function OrderTracking() {
           {/* Vendor */}
           <View
             style={cardShadow}
-            className="mx-3 mt-4 flex-row items-center gap-3 rounded-2xl bg-white p-3"
+            className="mx-3 mt-4 flex-row items-center gap-3 rounded-2xl bg-white dark:bg-[#201B17] p-3"
           >
             {vendorCoverPhotoUrl ? (
               <Image
@@ -307,64 +369,72 @@ export default function OrderTracking() {
               />
             ) : (
               <View
-                style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: "#F3E8DD" }}
+                style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: t("#F3E8DD") }}
                 className="items-center justify-center"
               >
                 <Ionicons name="storefront-outline" size={22} color="#C9A98D" />
               </View>
             )}
             <View className="flex-1 shrink">
-              <Text className="text-[16px] font-inter-bold text-[#1F1F1F]">
+              <Text className="text-[16px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
                 {vendorName}
               </Text>
             </View>
           </View>
 
           {/* Order items */}
-          <View style={cardShadow} className="mx-3 mt-4 rounded-[18px] bg-white p-3">
-            <Text className="text-[17px] font-inter-bold text-[#1F1F1F]">Order Items</Text>
+          <View style={cardShadow} className="mx-3 mt-4 rounded-[18px] bg-white dark:bg-[#201B17] p-3">
+            <Text className="text-[17px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">Order Items</Text>
             <View className="mt-3">
               {items.map((item, index) => (
                 <View
                   key={item.id}
                   className={`flex-row items-center gap-3 py-2 ${
-                    index > 0 ? "mt-1 border-t border-[#F0EAE3] pt-3" : ""
+                    index > 0 ? "mt-1 border-t border-[#F0EAE3] dark:border-[#2E2924] pt-3" : ""
                   }`}
                 >
                   <View
-                    style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: "#FBE1D2" }}
+                    style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: t("#FBE1D2") }}
                     className="items-center justify-center"
                   >
                     <Ionicons name="fast-food-outline" size={20} color="#FF5A1F" />
                   </View>
-                  <Text className="flex-1 shrink text-[14px] font-inter-medium text-[#1F1F1F]">
+                  <Text className="flex-1 shrink text-[14px] font-inter-medium text-[#1F1F1F] dark:text-[#F3EEE8]">
                     {item.productName}
                   </Text>
-                  <Text className="text-[13px] font-inter-regular text-[#8A8A8A]">
+                  <Text className="text-[13px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">
                     x{item.quantity}
                   </Text>
-                  <Text className="w-[76px] text-right text-[14px] font-inter-bold text-[#1F1F1F]">
+                  <Text className="w-[76px] text-right text-[14px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
                     {formatNaira(item.unitPriceMinor * item.quantity)}
                   </Text>
                 </View>
               ))}
             </View>
-            <View className="mt-3 border-t border-[#F0EAE3] pt-3">
+            <View className="mt-3 border-t border-[#F0EAE3] dark:border-[#2E2924] pt-3">
               <View className="flex-row items-center justify-between">
-                <Text className="text-[13px] font-inter-regular text-[#8A8A8A]">Subtotal</Text>
-                <Text className="text-[13px] font-inter-semibold text-[#1F1F1F]">
+                <Text className="text-[13px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">Subtotal</Text>
+                <Text className="text-[13px] font-inter-semibold text-[#1F1F1F] dark:text-[#F3EEE8]">
                   {formatNaira(order.subtotalMinor)}
                 </Text>
               </View>
               <View className="mt-1 flex-row items-center justify-between">
-                <Text className="text-[13px] font-inter-regular text-[#8A8A8A]">Platform fee</Text>
-                <Text className="text-[13px] font-inter-semibold text-[#1F1F1F]">
+                <Text className="text-[13px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">Platform fee</Text>
+                <Text className="text-[13px] font-inter-semibold text-[#1F1F1F] dark:text-[#F3EEE8]">
                   {formatNaira(order.platformFeeMinor)}
                 </Text>
               </View>
-              <View className="mt-2 flex-row items-center justify-between border-t border-[#F0EAE3] pt-2">
-                <Text className="text-[16px] font-inter-bold text-[#1F1F1F]">Total</Text>
-                <Text className="text-[18px] font-inter-bold text-[#1F1F1F]">
+              {order.deliveryFeeMinor ? (
+                <View className="mt-1 flex-row items-center justify-between">
+                  <Text className="text-[13px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">Delivery fee</Text>
+                  <Text className="text-[13px] font-inter-semibold text-[#1F1F1F] dark:text-[#F3EEE8]">
+                    {formatNaira(order.deliveryFeeMinor)}
+                  </Text>
+                </View>
+              ) : null}
+              <View className="mt-2 flex-row items-center justify-between border-t border-[#F0EAE3] dark:border-[#2E2924] pt-2">
+                <Text className="text-[16px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">Total</Text>
+                <Text className="text-[18px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
                   {formatNaira(order.totalMinor)}
                 </Text>
               </View>

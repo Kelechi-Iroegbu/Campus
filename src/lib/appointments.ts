@@ -8,10 +8,26 @@ export type ConfirmResult =
   | { ok: true }
   | { ok: false; reason: "not_found" | "not_confirmable" };
 
-/** `booked -> confirmed`. No money movement — the student already paid at booking. */
-export async function confirmAppointment(id: string): Promise<ConfirmResult> {
+/**
+ * `booked -> confirmed`. No money movement — the student already paid at booking.
+ *
+ * `expectedVendorProfileId`, when passed, is checked against the row before
+ * anything else — defense in depth against a future caller that forgets its
+ * own pre-check (every current route already verifies ownership itself
+ * before calling this, e.g. `api/vendor/appointments/[id]/confirm+api.ts`).
+ * A mismatch reads as "not_found" rather than a distinct forbidden reason,
+ * so a caller probing IDs it doesn't own can't distinguish "wrong owner"
+ * from "doesn't exist".
+ */
+export async function confirmAppointment(
+  id: string,
+  expectedVendorProfileId?: string,
+): Promise<ConfirmResult> {
   const [appt] = await db.select().from(appointments).where(eq(appointments.id, id)).limit(1);
   if (!appt) return { ok: false, reason: "not_found" };
+  if (expectedVendorProfileId && appt.vendorProfileId !== expectedVendorProfileId) {
+    return { ok: false, reason: "not_found" };
+  }
   if (appt.status !== "booked") return { ok: false, reason: "not_confirmable" };
 
   await db
@@ -38,9 +54,14 @@ export type CancelResult =
 export async function cancelAppointment(
   id: string,
   by: "student" | "vendor" | "system",
+  expectedOwnerProfileId?: string,
 ): Promise<CancelResult> {
   const [appt] = await db.select().from(appointments).where(eq(appointments.id, id)).limit(1);
   if (!appt) return { ok: false, reason: "not_found" };
+  if (expectedOwnerProfileId) {
+    const ownerId = by === "vendor" ? appt.vendorProfileId : appt.studentProfileId;
+    if (ownerId !== expectedOwnerProfileId) return { ok: false, reason: "not_found" };
+  }
   if (
     (appt.status !== "booked" && appt.status !== "confirmed") ||
     appt.scheduledStart <= new Date()
@@ -79,9 +100,15 @@ export type NoShowResult =
  * the locked-in decision. Only once `scheduledEnd` has passed — the vendor
  * is the one who knows whether the student actually showed up.
  */
-export async function noShowAppointment(id: string): Promise<NoShowResult> {
+export async function noShowAppointment(
+  id: string,
+  expectedVendorProfileId?: string,
+): Promise<NoShowResult> {
   const [appt] = await db.select().from(appointments).where(eq(appointments.id, id)).limit(1);
   if (!appt) return { ok: false, reason: "not_found" };
+  if (expectedVendorProfileId && appt.vendorProfileId !== expectedVendorProfileId) {
+    return { ok: false, reason: "not_found" };
+  }
   if (appt.status !== "booked" && appt.status !== "confirmed") {
     return { ok: false, reason: "not_markable" };
   }
@@ -113,9 +140,15 @@ export type CompleteResult =
   | { ok: false; reason: "not_found" | "not_completable" };
 
 /** `confirmed -> completed`; credits the vendor the full price (no platform fee). */
-export async function completeAppointment(id: string): Promise<CompleteResult> {
+export async function completeAppointment(
+  id: string,
+  expectedVendorProfileId?: string,
+): Promise<CompleteResult> {
   const [appt] = await db.select().from(appointments).where(eq(appointments.id, id)).limit(1);
   if (!appt) return { ok: false, reason: "not_found" };
+  if (expectedVendorProfileId && appt.vendorProfileId !== expectedVendorProfileId) {
+    return { ok: false, reason: "not_found" };
+  }
   if (appt.status !== "confirmed") return { ok: false, reason: "not_completable" };
 
   const [vendor] = await db

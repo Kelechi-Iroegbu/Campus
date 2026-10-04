@@ -10,8 +10,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { useApi } from "@/lib/api";
+import { ListState } from "@/components/ListState";
 
 type Row = {
   id: string;
@@ -38,9 +38,11 @@ export default function AdminHome() {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
 
   const load = useCallback(async () => {
+    setLoadError(false);
     try {
       const qs =
         filter === "all"
@@ -52,6 +54,7 @@ export default function AdminHome() {
       setRows(j.applications ?? []);
     } catch {
       setRows([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -110,13 +113,18 @@ export default function AdminHome() {
 
           {loading && rows.length === 0 ? (
             <ActivityIndicator color="#E8491D" style={{ marginTop: 40 }} />
+          ) : loadError ? (
+            <ListState
+              variant="error"
+              title="Couldn't load vendor applications. Check your connection and try again."
+              onRetry={load}
+            />
           ) : rows.length === 0 ? (
-            <View className="mt-16 items-center">
-              <Ionicons name="checkmark-done-outline" size={30} color="#B8B2A8" />
-              <Text className="mt-2 text-[14px] font-inter-medium text-[#8A8A8A]">
-                Nothing pending.
-              </Text>
-            </View>
+            <ListState
+              variant="empty"
+              icon="checkmark-done-outline"
+              title="Nothing pending."
+            />
           ) : (
             <View className="mt-4 gap-3">
               {rows.map((r) => {

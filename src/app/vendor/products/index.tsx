@@ -25,6 +25,7 @@ import { StatusBar } from "expo-status-bar";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { useVendorCopy, useVendorMode } from "@/lib/vendorMode";
 import { useApi } from "@/lib/api";
+import { ListState } from "@/components/ListState";
 
 // --- shared with the other vendor tabs so the section stays uniform ---
 const HEADING = "#14142B";
@@ -242,8 +243,10 @@ function ProductCatalog() {
   const copy = useVendorCopy();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const load = useCallback(async () => {
+    setLoadError(false);
     try {
       const res = await api("/api/products");
       if (!res.ok) throw new Error(String(res.status));
@@ -251,6 +254,7 @@ function ProductCatalog() {
       setProducts(j.products ?? []);
     } catch {
       setProducts([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -342,16 +346,14 @@ function ProductCatalog() {
           {/* Product list */}
           {loading ? (
             <ActivityIndicator color={ORANGE} style={{ marginTop: 60 }} />
+          ) : loadError ? (
+            <ListState
+              variant="error"
+              title="Couldn't load your catalogue. Check your connection and try again."
+              onRetry={load}
+            />
           ) : products.length === 0 ? (
-            <View className="mt-24 items-center px-8">
-              <Ionicons name="fast-food-outline" size={44} color="#C9C2B8" />
-              <Text
-                className="mt-4 text-center text-[15px] font-inter-regular"
-                style={{ color: SUBTLE }}
-              >
-                {copy.emptyCatalog}
-              </Text>
-            </View>
+            <ListState variant="empty" icon="fast-food-outline" title={copy.emptyCatalog} />
           ) : (
             <View className="gap-4">
               {products.map((p) => (
@@ -478,8 +480,10 @@ function ServiceCatalog() {
   const [services, setServices] = useState<Service[]>([]);
   const [availabilityReady, setAvailabilityReady] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const load = useCallback(async () => {
+    setLoadError(false);
     try {
       const [servicesRes, availabilityRes] = await Promise.all([
         api("/api/services"),
@@ -497,6 +501,7 @@ function ServiceCatalog() {
       }
     } catch {
       setServices([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -630,16 +635,14 @@ function ServiceCatalog() {
 
           {loading ? (
             <ActivityIndicator color={ORANGE} style={{ marginTop: 60 }} />
+          ) : loadError ? (
+            <ListState
+              variant="error"
+              title="Couldn't load your catalogue. Check your connection and try again."
+              onRetry={load}
+            />
           ) : services.length === 0 ? (
-            <View className="mt-20 items-center px-8">
-              <Ionicons name="cut-outline" size={44} color="#C9C2B8" />
-              <Text
-                className="mt-4 text-center text-[15px] font-inter-regular"
-                style={{ color: SUBTLE }}
-              >
-                {copy.emptyCatalog}
-              </Text>
-            </View>
+            <ListState variant="empty" icon="cut-outline" title={copy.emptyCatalog} />
           ) : (
             <View className="gap-4">
               {services.map((s) => (

@@ -4,6 +4,7 @@ import { paystackTransactions } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { getOrCreateWallet } from "@/lib/wallet";
 import { initializeTransaction } from "@/lib/paystack";
+import { withApi } from "@/lib/apiHandler";
 
 const MIN_TOPUP_MINOR = 100_00; // ₦100
 const MAX_TOPUP_MINOR = 500_000_00; // ₦500,000
@@ -17,7 +18,7 @@ const MAX_TOPUP_MINOR = 500_000_00; // ₦500,000
  * `WebBrowser.openAuthSessionAsync`; the wallet is only credited later by
  * `/api/webhooks/paystack` (or a verify poll) — never here.
  */
-export async function POST(request: Request) {
+export const POST = withApi(async (request: Request) => {
   let user;
   try {
     user = await requireUser(request);
@@ -88,4 +89,4 @@ export async function POST(request: Request) {
     authorizationUrl: init.authorization_url,
     accessCode: init.access_code,
   });
-}
+});

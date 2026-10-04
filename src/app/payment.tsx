@@ -15,7 +15,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useApi } from "@/lib/api";
 import { useCartStore, cartSubtotalMinor } from "@/lib/cartStore";
-import { PLATFORM_FEE_MINOR } from "@/lib/constants";
+import { COURIER_FEE_MINOR, PLATFORM_FEE_MINOR } from "@/lib/constants";
 import {
   BORDER_GRAY,
   ORANGE,
@@ -23,6 +23,7 @@ import {
   TEXT_GRAY,
   cardShadow,
 } from "@/components/vendor/theme";
+import { useTheme } from "@/lib/theme";
 
 const SUCCESS_GREEN = "#5FA65A";
 const LIGHT_PEACH = "#FDEAE0";
@@ -34,12 +35,15 @@ function formatNaira(minor: number) {
 }
 
 export default function Payment() {
+  const { t, isDark } = useTheme();
   const router = useRouter();
   const api = useApi();
-  const { vendorName, items, clear } = useCartStore();
+  const { vendorName, items, fulfillmentType, dropoffNote, clear } = useCartStore();
+  const isDelivery = fulfillmentType === "delivery";
 
   const subtotalMinor = cartSubtotalMinor(items);
-  const totalMinor = subtotalMinor + PLATFORM_FEE_MINOR;
+  const deliveryFeeMinor = isDelivery ? COURIER_FEE_MINOR : 0;
+  const totalMinor = subtotalMinor + PLATFORM_FEE_MINOR + deliveryFeeMinor;
 
   const [balanceMinor, setBalanceMinor] = useState<number | null>(null);
   const [placing, setPlacing] = useState(false);
@@ -72,6 +76,8 @@ export default function Payment() {
         method: "POST",
         body: JSON.stringify({
           items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+          fulfillmentType,
+          dropoffNote: isDelivery ? dropoffNote : undefined,
         }),
       });
       const data = (await res.json().catch(() => null)) as
@@ -88,12 +94,12 @@ export default function Payment() {
     } finally {
       setPlacing(false);
     }
-  }, [canPay, placing, items, api, clear, router]);
+  }, [canPay, placing, items, api, clear, router, fulfillmentType, dropoffNote, isDelivery]);
 
   return (
-    <View className="flex-1" style={{ backgroundColor: CREAM }}>
+    <View className="flex-1" style={{ backgroundColor: t(CREAM) }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? "light" : "dark"} />
 
       <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
         <View className="flex-row items-center justify-between px-4 pb-3 pt-3">
@@ -101,7 +107,7 @@ export default function Payment() {
             <Pressable onPress={() => router.back()} hitSlop={8}>
               <Ionicons name="arrow-back" size={24} color={TEXT_DARK} />
             </Pressable>
-            <Text className="text-[22px] font-inter-bold text-[#1F1F1F]">
+            <Text className="text-[22px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
               Checkout
             </Text>
           </View>
@@ -123,21 +129,21 @@ export default function Payment() {
         >
           {/* Order summary */}
           <View
-            className="mx-3 mt-2 overflow-hidden rounded-[18px] bg-white"
+            className="mx-3 mt-2 overflow-hidden rounded-[18px] bg-white dark:bg-[#201B17]"
             style={{
               ...cardShadow,
               shadowOpacity: 0.05,
               borderWidth: 1.5,
-              borderColor: CARD_BORDER_PEACH,
+              borderColor: t(CARD_BORDER_PEACH),
             }}
           >
             <View className="flex-row items-center justify-between px-4 py-3.5">
-              <Text className="text-[15px] font-inter-bold text-[#1F1F1F]">
+              <Text className="text-[15px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
                 Order Summary
               </Text>
               <View
                 className="rounded-full px-2.5 py-1"
-                style={{ backgroundColor: LIGHT_PEACH }}
+                style={{ backgroundColor: t(LIGHT_PEACH) }}
               >
                 <Text
                   className="text-[11px] font-inter-semibold"
@@ -162,7 +168,7 @@ export default function Payment() {
                 ) : (
                   <View
                     className="h-[60px] w-[60px] items-center justify-center rounded-[14px]"
-                    style={{ backgroundColor: LIGHT_PEACH }}
+                    style={{ backgroundColor: t(LIGHT_PEACH) }}
                   >
                     <Ionicons name="fast-food-outline" size={22} color={ORANGE} />
                   </View>
@@ -170,7 +176,7 @@ export default function Payment() {
                 <View className="flex-1">
                   <Text
                     numberOfLines={1}
-                    className="text-[15px] font-inter-bold text-[#1F1F1F]"
+                    className="text-[15px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]"
                   >
                     {item.name}
                   </Text>
@@ -181,7 +187,7 @@ export default function Payment() {
                     Qty: {item.quantity}
                   </Text>
                 </View>
-                <Text className="text-[15px] font-inter-bold text-[#1F1F1F]">
+                <Text className="text-[15px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
                   {formatNaira(item.priceMinor * item.quantity)}
                 </Text>
               </View>
@@ -202,12 +208,20 @@ export default function Payment() {
                 label="Platform fee"
                 value={PLATFORM_FEE_MINOR}
               />
+              {isDelivery ? (
+                <FeeRow
+                  icon={<Ionicons name="bicycle-outline" size={13} color={ORANGE} />}
+                  iconBg={LIGHT_PEACH}
+                  label="Delivery fee"
+                  value={deliveryFeeMinor}
+                />
+              ) : null}
             </View>
 
             <Divider />
 
             <View className="flex-row items-center justify-between px-4 py-4">
-              <Text className="text-[16px] font-inter-bold text-[#1F1F1F]">
+              <Text className="text-[16px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
                 Total
               </Text>
               <Text
@@ -220,7 +234,7 @@ export default function Payment() {
           </View>
 
           {/* Pay from wallet */}
-          <Text className="mx-3 mb-3 mt-6 text-[16px] font-inter-bold text-[#1F1F1F]">
+          <Text className="mx-3 mb-3 mt-6 text-[16px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
             Payment
           </Text>
 
@@ -269,7 +283,7 @@ export default function Payment() {
                 )
               }
               className="mx-3 mt-3 flex-row items-center justify-between rounded-[14px] border px-4 py-4"
-              style={{ borderColor: ORANGE, backgroundColor: "#FFF6F1" }}
+              style={{ borderColor: ORANGE, backgroundColor: t("#FFF6F1") }}
             >
               <View className="flex-row items-center gap-2.5">
                 <Ionicons name="add-circle" size={20} color={ORANGE} />
@@ -287,7 +301,7 @@ export default function Payment() {
           {canPay && (
             <View
               className="mx-3 mt-3 flex-row items-center gap-2 rounded-[10px] px-3.5 py-3"
-              style={{ backgroundColor: "#E8F5E9" }}
+              style={{ backgroundColor: t("#E8F5E9") }}
             >
               <Ionicons
                 name="checkmark-circle"
@@ -304,7 +318,7 @@ export default function Payment() {
           )}
 
           {error ? (
-            <Text className="mx-3 mt-3 text-[13px] font-inter-regular text-[#D64524]">
+            <Text className="mx-3 mt-3 text-[13px] font-inter-regular text-[#D64524] dark:text-[#FF7050]">
               {error}
             </Text>
           ) : null}
@@ -373,6 +387,7 @@ function FeeRow({
   label: string;
   value: number;
 }) {
+  const { t } = useTheme();
   return (
     <View className="flex-row items-center justify-between px-4 py-2">
       <View className="flex-row items-center gap-2.5">
@@ -384,12 +399,12 @@ function FeeRow({
         </View>
         <Text
           className="text-[13.5px] font-inter-medium"
-          style={{ color: "#3A3A3A" }}
+          style={{ color: t("#3A3A3A") }}
         >
           {label}
         </Text>
       </View>
-      <Text className="text-[13px] font-inter-semibold text-[#1F1F1F]">
+      <Text className="text-[13px] font-inter-semibold text-[#1F1F1F] dark:text-[#F3EEE8]">
         {formatNaira(value)}
       </Text>
     </View>
@@ -397,9 +412,10 @@ function FeeRow({
 }
 
 function Divider() {
+  const { t } = useTheme();
   return (
     <View
-      style={{ height: 1, backgroundColor: "#EEE7DC", marginHorizontal: 16 }}
+      style={{ height: 1, backgroundColor: t("#EEE7DC"), marginHorizontal: 16 }}
     />
   );
 }

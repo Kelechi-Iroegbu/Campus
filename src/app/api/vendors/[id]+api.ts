@@ -1,6 +1,8 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { campuses, categories, products, services, vendorProfiles } from "@/db/schema";
+import { campuses, categories, favoriteVendors, products, services, vendorProfiles } from "@/db/schema";
+import { getProfile } from "@/lib/auth";
+import { withApi } from "@/lib/apiHandler";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -10,10 +12,15 @@ const UUID_RE =
  * One approved vendor + its live catalogue (products for product vendors,
  * services for service vendors). Public.
  */
-export async function GET(_request: Request, { id }: Record<string, string>) {
+export const GET = withApi(async (request: Request, { id }: Record<string, string>) => {
   if (!UUID_RE.test(id)) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
+
+  // Soft auth — this route stays public for a logged-out browser, but a
+  // signed-in caller gets their favorite status inline instead of a second
+  // round trip.
+  const profile = await getProfile(request);
 
   const [vendor] = await db
     .select({
@@ -80,5 +87,24 @@ export async function GET(_request: Request, { id }: Record<string, string>) {
           .orderBy(asc(services.name))
       : [];
 
-  return Response.json({ vendor, products: productRows, services: serviceRows });
-}
+  let isFavorited = false;
+  if (profile) {
+    const [fav] = await db
+      .select({ id: favoriteVendors.id })
+      .from(favoriteVendors)
+      .where(
+        and(
+          eq(favoriteVendors.profileId, profile.id),
+          eq(favoriteVendors.vendorProfileId, vendor.id),
+        ),
+      )
+      .limit(1);
+    isFavorited = !!fav;
+  }
+
+  return Response.json({
+    vendor: { ...vendor, isFavorited },
+    products: productRows,
+    services: serviceRows,
+  });
+});

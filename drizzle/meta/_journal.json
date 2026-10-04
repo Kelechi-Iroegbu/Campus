@@ -15,6 +15,13 @@
       "when": 1789667817149,
       "tag": "0001_mixed_multiple_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789674387922,
+      "tag": "0002_cynical_omega_sentinel",
+      "breakpoints": true
     }
   ]
 }

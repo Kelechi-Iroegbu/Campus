@@ -95,6 +95,8 @@ export const walletTxnReason = pgEnum("wallet_txn_reason", [
   "vendor_earning",
   "payout",
   "payout_reversal",
+  "delivery_payment",
+  "delivery_refund",
   "adjustment",
 ]);
 
@@ -512,7 +514,11 @@ export const paystackTransactions = pgTable("paystack_transactions", {
   type: paystackTxnType("type").notNull().default("topup"),
   // Our reference, passed to Paystack as `reference` — unique per attempt.
   reference: text("reference").notNull().unique(),
+  // For type "transfer": the net amount actually sent to Paystack/the
+  // vendor. feeMinor is what was withheld from the wallet's gross debit —
+  // amountMinor + feeMinor reconstructs the gross. Null for "topup" rows.
   amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+  feeMinor: bigint("fee_minor", { mode: "number" }),
   currency: text("currency").notNull().default("NGN"),
   status: paystackTxnStatus("status").notNull().default("pending"),
   accessCode: text("access_code"),

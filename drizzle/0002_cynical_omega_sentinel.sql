@@ -1,0 +1,1 @@
+ALTER TABLE "paystack_transactions" ADD COLUMN "fee_minor" bigint;

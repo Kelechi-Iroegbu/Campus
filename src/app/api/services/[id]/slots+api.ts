@@ -3,9 +3,10 @@ import { db } from "@/db";
 import { services } from "@/db/schema";
 import { slotsForDate } from "@/lib/booking";
 import { loadAvailability, loadBookedAppointmentsForDate } from "@/lib/serviceAvailability";
+import { withApi } from "@/lib/apiHandler";
 
 /** GET /api/services/[id]/slots?date=YYYY-MM-DD — public. */
-export async function GET(request: Request, { id }: Record<string, string>) {
+export const GET = withApi(async (request: Request, { id }: Record<string, string>) => {
   const url = new URL(request.url);
   const date = url.searchParams.get("date");
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -37,4 +38,4 @@ export async function GET(request: Request, { id }: Record<string, string>) {
   });
 
   return Response.json({ slots });
-}
+});

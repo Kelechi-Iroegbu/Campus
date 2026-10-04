@@ -18,7 +18,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.CampUs"
+      "package": "com.anonymous.CampUs",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "server",
@@ -51,6 +52,13 @@
           "photosPermission": "Allow CampUs to access your photos to set a profile, shop, or cover photo.",
           "cameraPermission": false,
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#208AEF"
         }
       ]
     ],

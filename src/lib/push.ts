@@ -15,24 +15,22 @@ export type PushMessage = {
   data?: Record<string, unknown>;
 };
 
-/** Send one message to every registered token for a profile. Best-effort. */
-export async function sendPushToProfile(
-  profileId: string,
+type ExpoPushTicket =
+  | { status: "ok"; id: string }
+  | { status: "error"; message: string; details?: { error?: string } };
+
+/** Send `message` to every token belonging to the given profiles, in one batched call. */
+async function sendToTokenRows(
+  rows: { token: string; profileId: string }[],
   message: PushMessage,
 ): Promise<{ sent: number }> {
-  const rows = await db
-    .select({ token: pushTokens.token })
-    .from(pushTokens)
-    .where(eq(pushTokens.profileId, profileId));
+  const eligible = rows.filter(
+    (r) => r.token.startsWith("ExponentPushToken") || r.token.startsWith("ExpoPushToken"),
+  );
+  if (eligible.length === 0) return { sent: 0 };
 
-  const tokens = rows
-    .map((r) => r.token)
-    .filter((t) => t.startsWith("ExponentPushToken") || t.startsWith("ExpoPushToken"));
-
-  if (tokens.length === 0) return { sent: 0 };
-
-  const messages = tokens.map((to) => ({
-    to,
+  const messages = eligible.map((r) => ({
+    to: r.token,
     sound: "default" as const,
     title: message.title,
     body: message.body,
@@ -52,11 +50,56 @@ export async function sendPushToProfile(
       console.warn("expo push non-200", res.status, await res.text());
       return { sent: 0 };
     }
-    return { sent: tokens.length };
+    const { data: tickets } = (await res.json()) as { data: ExpoPushTicket[] };
+    const errors = tickets.filter((t) => t.status === "error");
+    if (errors.length > 0) {
+      console.warn("expo push ticket errors", JSON.stringify(errors));
+    }
+    await pruneUnregisteredTokens(eligible, tickets);
+    return { sent: eligible.length - errors.length };
   } catch (err) {
     console.warn("expo push failed", err);
     return { sent: 0 };
   }
+}
+
+/** Drop any token Expo's ticket response flags as no longer installed. */
+async function pruneUnregisteredTokens(
+  rows: { token: string; profileId: string }[],
+  tickets: ExpoPushTicket[],
+) {
+  const stale = rows.filter(
+    (_, i) => tickets[i]?.status === "error" && tickets[i].details?.error === "DeviceNotRegistered",
+  );
+  await Promise.all(stale.map((r) => removeTokens(r.profileId, [r.token])));
+}
+
+/** Send one message to every registered token for a profile. Best-effort. */
+export async function sendPushToProfile(
+  profileId: string,
+  message: PushMessage,
+): Promise<{ sent: number }> {
+  const rows = await db
+    .select({ token: pushTokens.token, profileId: pushTokens.profileId })
+    .from(pushTokens)
+    .where(eq(pushTokens.profileId, profileId));
+
+  return sendToTokenRows(rows, message);
+}
+
+/** Send one message to every registered token across a set of profiles. Best-effort. */
+export async function sendPushToProfiles(
+  profileIds: string[],
+  message: PushMessage,
+): Promise<{ sent: number }> {
+  if (profileIds.length === 0) return { sent: 0 };
+
+  const rows = await db
+    .select({ token: pushTokens.token, profileId: pushTokens.profileId })
+    .from(pushTokens)
+    .where(inArray(pushTokens.profileId, profileIds));
+
+  return sendToTokenRows(rows, message);
 }
 
 /** Drop tokens Expo reports as unregistered (called from a push-receipt sweep later). */

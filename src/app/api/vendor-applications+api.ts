@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { campuses, categories, profiles, vendorProfiles } from "@/db/schema";
 import { requireAdmin, requireProfile } from "@/lib/auth";
 import { parseApplicationInput } from "@/lib/vendorApplications";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * POST /api/vendor-applications
@@ -13,7 +14,7 @@ import { parseApplicationInput } from "@/lib/vendorApplications";
  *   Admin only — the review queue.
  */
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request: Request) => {
   let profile;
   try {
     profile = await requireProfile(request);
@@ -82,9 +83,9 @@ export async function POST(request: Request) {
         .returning();
 
   return Response.json({ application: row }, { status: existing ? 200 : 201 });
-}
+});
 
-export async function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   try {
     await requireAdmin(request);
   } catch (res) {
@@ -122,4 +123,4 @@ export async function GET(request: Request) {
     .orderBy(desc(vendorProfiles.submittedAt));
 
   return Response.json({ applications: rows });
-}
+});

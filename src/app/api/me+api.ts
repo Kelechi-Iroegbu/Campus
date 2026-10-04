@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { campuses, profiles, vendorProfiles } from "@/db/schema";
 import { requireProfile } from "@/lib/auth";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET  /api/me   → the caller's profile (+ derived flags), lazily created.
@@ -13,6 +14,7 @@ function shape(
   vendor: {
     status: string;
     offeringType: string;
+    displayName: string;
     isOpen: boolean;
     shopIconUrl: string | null;
     coverPhotoUrl: string | null;
@@ -40,6 +42,7 @@ function shape(
       ? {
           status: vendor.status,
           offeringType: vendor.offeringType,
+          displayName: vendor.displayName,
           isOpen: vendor.isOpen,
           shopIconUrl: vendor.shopIconUrl,
           coverPhotoUrl: vendor.coverPhotoUrl,
@@ -54,6 +57,7 @@ async function loadVendor(profileId: string) {
     .select({
       status: vendorProfiles.status,
       offeringType: vendorProfiles.offeringType,
+      displayName: vendorProfiles.displayName,
       isOpen: vendorProfiles.isOpen,
       shopIconUrl: vendorProfiles.shopIconUrl,
       coverPhotoUrl: vendorProfiles.coverPhotoUrl,
@@ -64,7 +68,7 @@ async function loadVendor(profileId: string) {
   return vp ?? null;
 }
 
-export async function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   let profile;
   try {
     profile = await requireProfile(request);
@@ -74,9 +78,9 @@ export async function GET(request: Request) {
 
   const vendor = await loadVendor(profile.id);
   return Response.json(shape(profile, vendor));
-}
+});
 
-export async function PATCH(request: Request) {
+export const PATCH = withApi(async (request: Request) => {
   let profile;
   try {
     profile = await requireProfile(request);
@@ -170,4 +174,4 @@ export async function PATCH(request: Request) {
 
   const vendor = await loadVendor(profile.id);
   return Response.json(shape(updated, vendor));
-}
+});

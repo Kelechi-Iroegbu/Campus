@@ -1,21 +1,17 @@
+import { useEffect, useState } from "react";
 import { Alert, Image, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useRouter } from "expo-router";
-import {
-  acceptRequest,
-  declineRequest,
-  markDelivered as markDeliveredInStore,
-  nairaAmount,
-  setOnline,
-  useCourierStore,
-  type NewRequest,
-} from "@/data/courier";
+import { useApi } from "@/lib/api";
+import { useSession } from "@/lib/session";
+import { useCourierDeliveries, type DeliveryJobRow } from "@/lib/useCourierDeliveries";
 import { ActiveDeliveryCard } from "@/components/courier/ActiveDeliveryCard";
 import { RequestCard } from "@/components/courier/RequestCard";
 import { cardBase, GREEN, HEADING, ORANGE, SCREEN_BG, SUBTLE } from "@/components/courier/theme";
+import { ListState } from "@/components/ListState";
 
 function IconButton({ children }: { children: React.ReactNode }) {
   return (
@@ -28,40 +24,108 @@ function IconButton({ children }: { children: React.ReactNode }) {
   );
 }
 
+function naira(minor: number) {
+  return `₦${(minor / 100).toLocaleString()}`;
+}
+
 export default function CourierDashboard() {
   const router = useRouter();
-  const { online, active, requests, earningsToday, deliveriesToday } =
-    useCourierStore();
+  const api = useApi();
+  const { me, refetch } = useSession();
+  const [online, setOnline] = useState(true);
+  const [togglingOnline, setTogglingOnline] = useState(false);
+  const { openJobs, activeJob, history, error: deliveriesError, refresh, claim, markPickedUp, markDelivered, fail } =
+    useCourierDeliveries();
 
-  const markDelivered = () => {
-    if (!active) return;
+  useEffect(() => {
+    if (me?.vendor) setOnline(me.vendor.isOpen);
+  }, [me?.vendor]);
+
+  async function toggleOnline() {
+    if (togglingOnline) return;
+    const next = !online;
+    setOnline(next); // optimistic
+    setTogglingOnline(true);
+    try {
+      const res = await api("/api/vendor/store-status", {
+        method: "PATCH",
+        body: JSON.stringify({ isOpen: next }),
+      });
+      if (!res.ok) throw new Error(`store-status ${res.status}`);
+      await refetch();
+    } catch (err) {
+      setOnline(!next); // revert on failure
+      console.error("Failed to update online status", err);
+    } finally {
+      setTogglingOnline(false);
+    }
+  }
+
+  const earningsToday = history.reduce((sum, r) => sum + r.job.deliveryFeeMinor, 0);
+  const deliveriesToday = history.length;
+
+  const doMarkPickedUp = async () => {
+    const result = await markPickedUp();
+    if (!result.ok) Alert.alert("Couldn't update", result.error);
+  };
+
+  const doMarkDelivered = () => {
+    if (!activeJob) return;
     Alert.alert(
-      `Mark ${active.code} as delivered?`,
+      "Mark as delivered?",
       "This confirms drop-off and adds the fee to today's earnings.",
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Mark delivered", onPress: markDeliveredInStore },
+        {
+          text: "Mark delivered",
+          onPress: async () => {
+            const result = await markDelivered();
+            if (!result.ok) Alert.alert("Couldn't update", result.error);
+          },
+        },
       ],
     );
   };
 
-  const navigate = () => {
-    if (!active) return;
-    Alert.alert("Navigate", `Opening directions to ${active.dropName}…`);
+  const doFail = () => {
+    if (!activeJob) return;
+    Alert.alert("Report a problem", "This refunds the requester in full.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Report",
+        style: "destructive",
+        onPress: async () => {
+          const result = await fail("Reported by courier");
+          if (!result.ok) Alert.alert("Couldn't report", result.error);
+        },
+      },
+    ]);
   };
 
-  const respondToRequest = (req: NewRequest) => {
-    if (active) {
+  const respondToRequest = (row: DeliveryJobRow) => {
+    if (activeJob) {
       Alert.alert(
         "You're on a delivery",
-        "Finish your active delivery before accepting another.",
+        "Finish your active delivery before claiming another.",
       );
       return;
     }
-    Alert.alert(req.label, `${req.meta} · ${nairaAmount(req.amount)}`, [
-      { text: "Decline", style: "cancel", onPress: () => declineRequest(req.id) },
-      { text: "Accept", onPress: () => acceptRequest(req.id) },
-    ]);
+    const pickupLabel =
+      row.job.source === "order" ? row.pickupVendorName ?? "Vendor" : row.job.pickupNote ?? "Pickup";
+    Alert.alert(
+      `${pickupLabel} → ${row.job.dropoffNote ?? "Dropoff"}`,
+      naira(row.job.deliveryFeeMinor),
+      [
+        { text: "Decline", style: "cancel" },
+        {
+          text: "Accept",
+          onPress: async () => {
+            const result = await claim(row.job.id);
+            if (!result.ok) Alert.alert("Couldn't claim", result.error);
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -95,11 +159,14 @@ export default function CourierDashboard() {
                   style={{ fontSize: 19, color: HEADING }}
                   numberOfLines={1}
                 >
-                  Mama Ngozi&apos;s Kitchen
+                  {me?.vendor?.displayName ?? "Your rider account"}
                 </Text>
               </View>
             </View>
-            <View className="relative">
+            <Pressable
+              className="relative"
+              onPress={() => router.push("/notifications")}
+            >
               <IconButton>
                 <Ionicons name="notifications-outline" size={20} color="#1A1A1A" />
               </IconButton>
@@ -107,12 +174,13 @@ export default function CourierDashboard() {
                 className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border-2 border-white"
                 style={{ backgroundColor: ORANGE }}
               />
-            </View>
+            </Pressable>
           </View>
 
-          {/* Online status card */}
+          {/* Online status card — shared with the profile toggle via me.vendor.isOpen */}
           <Pressable
-            onPress={() => setOnline(!online)}
+            onPress={toggleOnline}
+            disabled={togglingOnline}
             className="mt-5 overflow-hidden rounded-[26px]"
             style={{
               shadowColor: online ? ORANGE : "#8A8A8A",
@@ -210,7 +278,7 @@ export default function CourierDashboard() {
                   className="mt-1 font-inter-bold"
                   style={{ fontSize: 20, color: ORANGE }}
                 >
-                  {nairaAmount(earningsToday)}
+                  {naira(earningsToday)}
                 </Text>
               </View>
             </View>
@@ -250,9 +318,11 @@ export default function CourierDashboard() {
           </Text>
 
           <ActiveDeliveryCard
-            delivery={active}
-            onNavigate={navigate}
-            onMarkDelivered={markDelivered}
+            job={activeJob?.job ?? null}
+            pickupVendorName={activeJob?.pickupVendorName ?? null}
+            onMarkPickedUp={doMarkPickedUp}
+            onMarkDelivered={doMarkDelivered}
+            onFail={doFail}
           />
 
           {/* New requests */}
@@ -277,21 +347,30 @@ export default function CourierDashboard() {
           </View>
 
           <View className="mt-3 gap-3">
-            {requests.length === 0 ? (
-              <Text
-                className="text-[13px] font-inter-regular"
-                style={{ color: SUBTLE }}
-              >
-                {online
-                  ? "No new requests right now."
-                  : "You're offline — go online to receive requests."}
-              </Text>
+            {openJobs.length === 0 ? (
+              deliveriesError ? (
+                <ListState
+                  variant="error"
+                  title="Couldn't load requests. Check your connection and try again."
+                  onRetry={refresh}
+                />
+              ) : (
+                <Text
+                  className="text-[13px] font-inter-regular"
+                  style={{ color: SUBTLE }}
+                >
+                  {online
+                    ? "No new requests right now."
+                    : "You're offline — go online to receive requests."}
+                </Text>
+              )
             ) : (
-              requests.map((r) => (
+              openJobs.map((row) => (
                 <RequestCard
-                  key={r.id}
-                  request={r}
-                  onPress={() => respondToRequest(r)}
+                  key={row.job.id}
+                  job={row.job}
+                  pickupVendorName={row.pickupVendorName}
+                  onPress={() => respondToRequest(row)}
                 />
               ))
             )}

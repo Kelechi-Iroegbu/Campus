@@ -11,7 +11,9 @@ import {
   notifyVendorApplicationRejected,
 } from "@/inngest/vendor-application";
 import { orderAcceptTimeout } from "@/inngest/order-lifecycle";
+import { generateOrderRecap } from "@/inngest/order-recap";
 import { appointmentConfirmTimeout, appointmentReminders } from "@/inngest/appointment-lifecycle";
+import { processVendorPayout } from "@/inngest/payouts";
 
 const handler = serve({
   client: inngest,
@@ -23,8 +25,10 @@ const handler = serve({
     notifyVendorApplicationApproved,
     notifyVendorApplicationRejected,
     orderAcceptTimeout,
+    generateOrderRecap,
     appointmentConfirmTimeout,
     appointmentReminders,
+    processVendorPayout,
   ],
 });
 

@@ -1,6 +1,7 @@
 import { Text, View, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { pad2, ymd } from "@/lib/booking";
+import { useTheme } from "@/lib/theme";
 
 const INK = "#14142B";
 const MUTED = "#8A8A8A";
@@ -56,6 +57,7 @@ export function MonthCalendar({
   /** extra gate on top of the min/max range; defaults to always true */
   canSelect?: (date: string, mark: DayMark) => boolean;
 }) {
+  const { t } = useTheme();
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
   const startBlanks = new Date(year, month, 1).getDay();
@@ -81,13 +83,13 @@ export function MonthCalendar({
           disabled={prevDisabled}
           hitSlop={8}
           className="h-8 w-8 items-center justify-center rounded-[9px] border"
-          style={{ borderColor: LINE, opacity: prevDisabled ? 0.35 : 1 }}
+          style={{ borderColor: t(LINE), opacity: prevDisabled ? 0.35 : 1 }}
         >
-          <Ionicons name="chevron-back" size={15} color={INK} />
+          <Ionicons name="chevron-back" size={15} color={t(INK)} />
         </Pressable>
         <Text
           className="text-[15px] font-inter-bold"
-          style={{ color: INK }}
+          style={{ color: t(INK) }}
         >
           {MONTHS[month]} {year}
         </Text>
@@ -96,9 +98,9 @@ export function MonthCalendar({
           disabled={nextDisabled}
           hitSlop={8}
           className="h-8 w-8 items-center justify-center rounded-[9px] border"
-          style={{ borderColor: LINE, opacity: nextDisabled ? 0.35 : 1 }}
+          style={{ borderColor: t(LINE), opacity: nextDisabled ? 0.35 : 1 }}
         >
-          <Ionicons name="chevron-forward" size={15} color={INK} />
+          <Ionicons name="chevron-forward" size={15} color={t(INK)} />
         </Pressable>
       </View>
 
@@ -108,7 +110,7 @@ export function MonthCalendar({
           <Text
             key={i}
             className="text-center text-[10px] font-inter-regular"
-            style={{ width: `${100 / 7}%`, color: FAINT, letterSpacing: 0.5 }}
+            style={{ width: `${100 / 7}%`, color: t(FAINT), letterSpacing: 0.5 }}
           >
             {d}
           </Text>
@@ -166,10 +168,10 @@ export function MonthCalendar({
                     color: isSel
                       ? "#FFFFFF"
                       : outOfRange
-                        ? FAINT
+                        ? t(FAINT)
                         : mark.closed
-                          ? FAINT
-                          : INK,
+                          ? t(FAINT)
+                          : t(INK),
                     textDecorationLine:
                       mark.closed && !isSel ? "line-through" : "none",
                   }}
@@ -210,7 +212,7 @@ export function MonthCalendar({
                       width: 4,
                       height: 4,
                       borderRadius: 2,
-                      backgroundColor: isSel ? "#FFFFFF" : INK,
+                      backgroundColor: isSel ? t("#FFFFFF") : t(INK),
                     }}
                   />
                 ) : null}
@@ -238,6 +240,7 @@ function Legend({
   swatch: React.ReactNode;
   children: string;
 }) {
+  const { t } = useTheme();
   return (
     <View className="flex-row items-center" style={{ gap: 6 }}>
       <View
@@ -246,14 +249,14 @@ function Legend({
           height: 14,
           borderRadius: 4,
           borderWidth: 1,
-          borderColor: LINE,
+          borderColor: t(LINE),
         }}
       >
         {swatch}
       </View>
       <Text
         className="text-[10px] font-inter-regular"
-        style={{ color: MUTED, letterSpacing: 0.4 }}
+        style={{ color: t(MUTED), letterSpacing: 0.4 }}
       >
         {children}
       </Text>
@@ -296,6 +299,7 @@ function Bar() {
   );
 }
 function Strike() {
+  const { t } = useTheme();
   return (
     <View
       style={{
@@ -304,13 +308,14 @@ function Strike() {
         right: 1,
         top: 6,
         height: 1.5,
-        backgroundColor: FAINT,
+        backgroundColor: t(FAINT),
         transform: [{ rotate: "-32deg" }],
       }}
     />
   );
 }
 function Corner() {
+  const { t } = useTheme();
   return (
     <View
       style={{
@@ -320,7 +325,7 @@ function Corner() {
         width: 4,
         height: 4,
         borderRadius: 2,
-        backgroundColor: INK,
+        backgroundColor: t(INK),
       }}
     />
   );

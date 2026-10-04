@@ -1,12 +1,14 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { orders } from "@/db/schema";
+import { deliveryJobs, orders } from "@/db/schema";
 import { requireVendor } from "@/lib/vendor";
 import { sendPushToProfile } from "@/lib/push";
+import { notifyAvailableCouriers } from "@/lib/deliveryJobs";
 import { inngest } from "@/inngest/client";
+import { withApi } from "@/lib/apiHandler";
 
 /** POST /api/vendor/orders/[id]/accept — placed -> accepted. */
-export async function POST(request: Request, { id }: Record<string, string>) {
+export const POST = withApi(async (request: Request, { id }: Record<string, string>) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request, { approved: true, offeringType: "product" }));
@@ -27,6 +29,21 @@ export async function POST(request: Request, { id }: Record<string, string>) {
     .set({ status: "accepted", acceptedAt: new Date(), updatedAt: new Date() })
     .where(eq(orders.id, id));
 
+  if (order.fulfillmentType === "delivery") {
+    const [flipped] = await db
+      .update(deliveryJobs)
+      .set({ status: "open", updatedAt: new Date() })
+      .where(and(eq(deliveryJobs.orderId, id), eq(deliveryJobs.status, "awaiting_vendor")))
+      .returning({ id: deliveryJobs.id, campusId: deliveryJobs.campusId });
+    if (flipped) {
+      try {
+        await notifyAvailableCouriers(flipped);
+      } catch (err) {
+        console.error("Failed to notify couriers of newly opened delivery job", err);
+      }
+    }
+  }
+
   try {
     await inngest.send({ name: "order/accepted", data: { orderId: id } });
   } catch (err) {
@@ -39,4 +56,4 @@ export async function POST(request: Request, { id }: Record<string, string>) {
   });
 
   return Response.json({ ok: true });
-}
+});

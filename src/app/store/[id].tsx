@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useApi } from "@/lib/api";
 import { cartSubtotalMinor, useCartStore } from "@/lib/cartStore";
 import { CartBar } from "@/components/vendor/CartBar";
+import { useTheme } from "@/lib/theme";
 
 type Vendor = {
   id: string;
@@ -24,6 +25,7 @@ type Vendor = {
   coverPhotoUrl: string | null;
   categoryName: string | null;
   campusName: string | null;
+  isFavorited: boolean;
 };
 
 type Product = {
@@ -47,6 +49,7 @@ type Service = {
 const naira = (minor: number) => `₦${(minor / 100).toLocaleString()}`;
 
 export default function VendorDetail() {
+  const { t } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const api = useApi();
@@ -87,8 +90,29 @@ export default function VendorDetail() {
     }, [load]),
   );
 
+  const [togglingFavorite, setTogglingFavorite] = useState(false);
+  const toggleFavorite = async () => {
+    if (!vendor || togglingFavorite) return;
+    const next = !vendor.isFavorited;
+    setVendor({ ...vendor, isFavorited: next }); // optimistic
+    setTogglingFavorite(true);
+    try {
+      const res = next
+        ? await api("/api/favorites", {
+            method: "POST",
+            body: JSON.stringify({ vendorProfileId: vendor.id }),
+          })
+        : await api(`/api/favorites/${vendor.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(String(res.status));
+    } catch {
+      setVendor((v) => (v ? { ...v, isFavorited: !next } : v)); // revert
+    } finally {
+      setTogglingFavorite(false);
+    }
+  };
+
   return (
-    <View className="flex-1 bg-[#FBF3EC]">
+    <View className="flex-1 bg-[#FBF3EC] dark:bg-[#15120F]">
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar style="light" />
       <SafeAreaView className="flex-1" edges={["bottom"]}>
@@ -100,11 +124,11 @@ export default function VendorDetail() {
           <View className="flex-1 items-center justify-center px-8">
             <Pressable
               onPress={() => router.back()}
-              className="absolute left-4 top-4 h-10 w-10 items-center justify-center rounded-full bg-white"
+              className="absolute left-4 top-4 h-10 w-10 items-center justify-center rounded-full bg-white dark:bg-[#201B17]"
             >
-              <Ionicons name="chevron-back" size={20} color="#1F1F1F" />
+              <Ionicons name="chevron-back" size={20} color={t("#1F1F1F")} />
             </Pressable>
-            <Text className="text-[15px] font-inter-medium text-[#8A8A8A]">
+            <Text className="text-[15px] font-inter-medium text-[#8A8A8A] dark:text-[#A39A91]">
               This vendor isn&apos;t available.
             </Text>
           </View>
@@ -114,7 +138,7 @@ export default function VendorDetail() {
             showsVerticalScrollIndicator={false}
           >
             {/* Cover */}
-            <View style={{ height: 210, backgroundColor: "#E7D6C6" }}>
+            <View style={{ height: 210, backgroundColor: t("#E7D6C6") }}>
               {vendor.coverPhotoUrl ? (
                 <Image
                   source={{ uri: vendor.coverPhotoUrl }}
@@ -140,11 +164,22 @@ export default function VendorDetail() {
               >
                 <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
               </Pressable>
+              <Pressable
+                onPress={toggleFavorite}
+                hitSlop={8}
+                className="absolute right-4 top-4 h-10 w-10 items-center justify-center rounded-full bg-black/35"
+              >
+                <Ionicons
+                  name={vendor.isFavorited ? "heart" : "heart-outline"}
+                  size={20}
+                  color={vendor.isFavorited ? "#FF5A1F" : "#FFFFFF"}
+                />
+              </Pressable>
             </View>
 
             {/* Header card */}
             <View
-              className="mx-4 -mt-8 rounded-3xl bg-white p-5"
+              className="mx-4 -mt-8 rounded-3xl bg-white dark:bg-[#201B17] p-5"
               style={{
                 shadowColor: "#1F1F1F",
                 shadowOffset: { width: 0, height: 4 },
@@ -153,33 +188,33 @@ export default function VendorDetail() {
                 elevation: 4,
               }}
             >
-              <Text className="text-[22px] font-inter-bold text-[#1F1F1F]">
+              <Text className="text-[22px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
                 {vendor.displayName}
               </Text>
               <View className="mt-1.5 flex-row flex-wrap items-center gap-x-2 gap-y-1">
                 {vendor.categoryName ? (
-                  <Text className="text-[13px] font-inter-medium text-[#8A8A8A]">
+                  <Text className="text-[13px] font-inter-medium text-[#8A8A8A] dark:text-[#A39A91]">
                     {vendor.categoryName}
                   </Text>
                 ) : null}
                 {vendor.campusName ? (
                   <>
-                    <Text className="text-[12px] text-[#C9C0B4]">·</Text>
-                    <Text className="text-[13px] font-inter-regular text-[#8A8A8A]">
+                    <Text className="text-[12px] text-[#C9C0B4] dark:text-[#6F675F]">·</Text>
+                    <Text className="text-[13px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">
                       {vendor.campusName}
                     </Text>
                   </>
                 ) : null}
               </View>
               {vendor.description ? (
-                <Text className="mt-3 text-[14px] font-inter-regular leading-5 text-[#5C5C5C]">
+                <Text className="mt-3 text-[14px] font-inter-regular leading-5 text-[#5C5C5C] dark:text-[#B8B0A7]">
                   {vendor.description}
                 </Text>
               ) : null}
               {vendor.address ? (
                 <View className="mt-3 flex-row items-center gap-1.5">
-                  <Ionicons name="location-outline" size={14} color="#8A8A8A" />
-                  <Text className="text-[13px] font-inter-regular text-[#8A8A8A]">
+                  <Ionicons name="location-outline" size={14} color={t("#8A8A8A")} />
+                  <Text className="text-[13px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">
                     {vendor.address}
                   </Text>
                 </View>
@@ -187,13 +222,13 @@ export default function VendorDetail() {
             </View>
 
             {/* Catalogue */}
-            <Text className="mx-4 mb-2 mt-6 text-[17px] font-inter-bold text-[#1F1F1F]">
+            <Text className="mx-4 mb-2 mt-6 text-[17px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
               {vendor.offeringType === "service" ? "Services" : "Menu"}
             </Text>
 
             {vendor.offeringType === "service" ? (
               services.length === 0 ? (
-                <Text className="mx-4 text-[14px] font-inter-regular text-[#8A8A8A]">
+                <Text className="mx-4 text-[14px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">
                   Nothing listed yet.
                 </Text>
               ) : (
@@ -202,14 +237,14 @@ export default function VendorDetail() {
                     <Pressable
                       key={s.id}
                       onPress={() => router.push(`/book/${s.id}` as never)}
-                      className="flex-row items-center gap-3 rounded-2xl bg-white p-3"
+                      className="flex-row items-center gap-3 rounded-2xl bg-white dark:bg-[#201B17] p-3"
                     >
                       <View
                         style={{
                           width: 70,
                           height: 70,
                           borderRadius: 14,
-                          backgroundColor: "#FCE7EC",
+                          backgroundColor: t("#FCE7EC"),
                           alignItems: "center",
                           justifyContent: "center",
                         }}
@@ -219,14 +254,14 @@ export default function VendorDetail() {
                       <View className="flex-1">
                         <Text
                           numberOfLines={1}
-                          className="text-[15px] font-inter-bold text-[#1F1F1F]"
+                          className="text-[15px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]"
                         >
                           {s.name}
                         </Text>
                         {s.description ? (
                           <Text
                             numberOfLines={2}
-                            className="mt-0.5 text-[12px] font-inter-regular leading-4 text-[#8A8A8A]"
+                            className="mt-0.5 text-[12px] font-inter-regular leading-4 text-[#8A8A8A] dark:text-[#A39A91]"
                           >
                             {s.description}
                           </Text>
@@ -235,13 +270,13 @@ export default function VendorDetail() {
                           {naira(s.priceMinor)} · {s.durationMinutes} min
                         </Text>
                       </View>
-                      <Ionicons name="chevron-forward" size={18} color="#C9C0B4" />
+                      <Ionicons name="chevron-forward" size={18} color={t("#C9C0B4")} />
                     </Pressable>
                   ))}
                 </View>
               )
             ) : products.length === 0 ? (
-              <Text className="mx-4 text-[14px] font-inter-regular text-[#8A8A8A]">
+              <Text className="mx-4 text-[14px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">
                 Nothing listed yet.
               </Text>
             ) : (
@@ -250,7 +285,7 @@ export default function VendorDetail() {
                   <Pressable
                     key={p.id}
                     onPress={() => router.push(`/product/${p.id}` as never)}
-                    className="flex-row items-center gap-3 rounded-2xl bg-white p-3"
+                    className="flex-row items-center gap-3 rounded-2xl bg-white dark:bg-[#201B17] p-3"
                   >
                     <View
                       style={{
@@ -258,7 +293,7 @@ export default function VendorDetail() {
                         height: 70,
                         borderRadius: 14,
                         overflow: "hidden",
-                        backgroundColor: "#F3E8DD",
+                        backgroundColor: t("#F3E8DD"),
                         alignItems: "center",
                         justifyContent: "center",
                       }}
@@ -276,14 +311,14 @@ export default function VendorDetail() {
                     <View className="flex-1">
                       <Text
                         numberOfLines={1}
-                        className="text-[15px] font-inter-bold text-[#1F1F1F]"
+                        className="text-[15px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]"
                       >
                         {p.name}
                       </Text>
                       {p.description ? (
                         <Text
                           numberOfLines={2}
-                          className="mt-0.5 text-[12px] font-inter-regular leading-4 text-[#8A8A8A]"
+                          className="mt-0.5 text-[12px] font-inter-regular leading-4 text-[#8A8A8A] dark:text-[#A39A91]"
                         >
                           {p.description}
                         </Text>
@@ -292,7 +327,7 @@ export default function VendorDetail() {
                         {naira(p.priceMinor)}
                       </Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={18} color="#C9C0B4" />
+                    <Ionicons name="chevron-forward" size={18} color={t("#C9C0B4")} />
                   </Pressable>
                 ))}
               </View>

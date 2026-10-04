@@ -1,12 +1,13 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { campuses } from "@/db/schema";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET /api/campuses?universityId=... — campuses, optionally filtered to one
  * university. Reference data for student onboarding. Public.
  */
-export async function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   const universityId = new URL(request.url).searchParams.get("universityId");
 
   const rows = await db
@@ -21,4 +22,4 @@ export async function GET(request: Request) {
     .orderBy(asc(campuses.name));
 
   return Response.json({ campuses: rows });
-}
+});

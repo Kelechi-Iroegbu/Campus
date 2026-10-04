@@ -2,6 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { products } from "@/db/schema";
 import { requireVendor } from "@/lib/vendor";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET  /api/products         — the caller's own products (vendor).
@@ -9,7 +10,7 @@ import { requireVendor } from "@/lib/vendor";
  *   Body: { name, description?, priceMinor, imageUrl?, isActive? }
  */
 
-export async function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request));
@@ -29,9 +30,9 @@ export async function GET(request: Request) {
     .orderBy(desc(products.createdAt));
 
   return Response.json({ products: rows });
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request: Request) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request, {
@@ -82,4 +83,4 @@ export async function POST(request: Request) {
     .returning();
 
   return Response.json({ product: row }, { status: 201 });
-}
+});

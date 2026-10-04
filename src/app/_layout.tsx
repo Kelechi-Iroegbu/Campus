@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { Stack, usePathname, useRouter, useSegments } from "expo-router";
 import type { Href } from "expo-router";
 import * as Sentry from "@sentry/react-native";
 import * as SplashScreen from "expo-splash-screen";
@@ -14,11 +14,26 @@ import {
   Inter_700Bold,
 } from "@expo-google-fonts/inter";
 import { SessionProvider, useSession } from "@/lib/session";
+import { useApplyAppearance, useTheme } from "@/lib/theme";
+import { SENTRY_DSN, SENTRY_TRACES_SAMPLE_RATE } from "@/lib/sentry-options";
+import { ErrorFallback } from "@/components/ErrorFallback";
 import "../../global.css";
 
 Sentry.init({
-  dsn: "https://dd7eae3e3f7afe8acbaca1cabfa00aa8@o4511910731776000.ingest.us.sentry.io/4511919936569344",
+  dsn: SENTRY_DSN,
   sendDefaultPii: true,
+  // Send Sentry.logger.* calls (money/payment flows) to Sentry.
+  // https://docs.sentry.io/platforms/react-native/logs/
+  enableLogs: true,
+  // Performance tracing. With a sample rate set, `enableAutoPerformanceTracing`
+  // (on by default) wires up screen navigation, app start, and HTTP timing
+  // automatically; the money-flow libs (`lib/wallet.ts`, `lib/paystack.ts`,
+  // `lib/payout.ts`) add their own spans on top of that.
+  // https://docs.sentry.io/platforms/javascript/tracing/
+  tracesSampleRate: SENTRY_TRACES_SAMPLE_RATE,
+  // Only attach distributed-trace headers to the app's own API routes — not
+  // to Clerk, Paystack, or ImageKit's third-party APIs.
+  tracePropagationTargets: [/^\/api\//],
 });
 
 SplashScreen.preventAutoHideAsync();
@@ -35,11 +50,33 @@ const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!;
  */
 const APP_AREAS = new Set(["(tabs)", "vendor", "courier", "admin"]);
 
+// Dark mode applies to what a student sees. Every other area (vendor, courier,
+// admin, sign-in, onboarding) is always light.
+const STUDENT_AREAS = new Set([
+  "(tabs)",
+  "category",
+  "store",
+  "product",
+  "book",
+  "deliveries",
+  "checkout",
+  "payment",
+  "send-delivery",
+  "notifications",
+]);
+
 function RootNavigator() {
   const { isLoaded, isSignedIn } = useAuth();
   const { isAdmin, loading: sessionLoading } = useSession();
   const segments = useSegments();
   const router = useRouter();
+  const pathname = usePathname();
+  const { t } = useTheme();
+  useApplyAppearance(STUDENT_AREAS.has((segments[0] as string | undefined) ?? ""));
+
+  useEffect(() => {
+    Sentry.addBreadcrumb({ category: "navigation", message: pathname });
+  }, [pathname]);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -60,7 +97,7 @@ function RootNavigator() {
   }, [isLoaded, isSignedIn, isAdmin, sessionLoading, segments, router]);
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t("#FBF3EC") } }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="vendor" options={{ headerShown: false }} />
       <Stack.Screen name="courier" options={{ headerShown: false }} />
@@ -86,14 +123,16 @@ export default Sentry.wrap(function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
-        <ClerkLoaded>
-          <SessionProvider>
-            <RootNavigator />
-          </SessionProvider>
-        </ClerkLoaded>
-      </ClerkProvider>
-    </GestureHandlerRootView>
+    <Sentry.ErrorBoundary fallback={({ resetError }) => <ErrorFallback resetError={resetError} />}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+          <ClerkLoaded>
+            <SessionProvider>
+              <RootNavigator />
+            </SessionProvider>
+          </ClerkLoaded>
+        </ClerkProvider>
+      </GestureHandlerRootView>
+    </Sentry.ErrorBoundary>
   );
 });

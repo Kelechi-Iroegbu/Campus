@@ -14,6 +14,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-rou
 import { Ionicons } from "@expo/vector-icons";
 import { useApi } from "@/lib/api";
 import { useCartStore } from "@/lib/cartStore";
+import { useTheme } from "@/lib/theme";
 
 type Detail = {
   product: {
@@ -31,6 +32,7 @@ type Detail = {
 const naira = (minor: number) => `₦${(minor / 100).toLocaleString()}`;
 
 export default function ProductDetail() {
+  const { t, isDark } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const api = useApi();
@@ -102,9 +104,9 @@ export default function ProductDetail() {
   }
 
   return (
-    <View className="flex-1 bg-[#FBF3EC]">
+    <View className="flex-1 bg-[#FBF3EC] dark:bg-[#15120F]">
       <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? "light" : "dark"} />
       <SafeAreaView className="flex-1" edges={["bottom"]}>
         {loading ? (
           <View className="flex-1 items-center justify-center">
@@ -114,11 +116,11 @@ export default function ProductDetail() {
           <View className="flex-1 items-center justify-center px-8">
             <Pressable
               onPress={() => router.back()}
-              className="absolute left-4 top-4 h-10 w-10 items-center justify-center rounded-full bg-white"
+              className="absolute left-4 top-4 h-10 w-10 items-center justify-center rounded-full bg-white dark:bg-[#201B17]"
             >
-              <Ionicons name="chevron-back" size={20} color="#1F1F1F" />
+              <Ionicons name="chevron-back" size={20} color={t("#1F1F1F")} />
             </Pressable>
-            <Text className="text-[15px] font-inter-medium text-[#8A8A8A]">
+            <Text className="text-[15px] font-inter-medium text-[#8A8A8A] dark:text-[#A39A91]">
               This product isn&apos;t available.
             </Text>
           </View>
@@ -128,7 +130,7 @@ export default function ProductDetail() {
               contentContainerStyle={{ paddingBottom: 24 }}
               showsVerticalScrollIndicator={false}
             >
-              <View style={{ height: 300, backgroundColor: "#E7D6C6" }}>
+              <View style={{ height: 300, backgroundColor: t("#E7D6C6") }}>
                 {p.imageUrl ? (
                   <Image
                     source={{ uri: p.imageUrl }}
@@ -160,7 +162,7 @@ export default function ProductDetail() {
               </View>
 
               <View className="px-5 pt-5">
-                <Text className="text-[24px] font-inter-bold text-[#1F1F1F]">
+                <Text className="text-[24px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
                   {p.name}
                 </Text>
                 <Text className="mt-1 text-[19px] font-inter-bold text-[#FF6B4A]">
@@ -171,22 +173,22 @@ export default function ProductDetail() {
                   onPress={() => router.push(`/store/${data.vendorId}` as never)}
                   className="mt-3 flex-row items-center gap-1.5"
                 >
-                  <Ionicons name="storefront-outline" size={15} color="#8A8A8A" />
-                  <Text className="text-[13px] font-inter-medium text-[#8A8A8A]">
+                  <Ionicons name="storefront-outline" size={15} color={t("#8A8A8A")} />
+                  <Text className="text-[13px] font-inter-medium text-[#8A8A8A] dark:text-[#A39A91]">
                     {data.vendorName}
                   </Text>
-                  <Ionicons name="chevron-forward" size={13} color="#C9C0B4" />
+                  <Ionicons name="chevron-forward" size={13} color={t("#C9C0B4")} />
                 </Pressable>
 
                 {p.description ? (
-                  <Text className="mt-4 text-[15px] font-inter-regular leading-6 text-[#5C5C5C]">
+                  <Text className="mt-4 text-[15px] font-inter-regular leading-6 text-[#5C5C5C] dark:text-[#B8B0A7]">
                     {p.description}
                   </Text>
                 ) : null}
 
                 {!p.isActive ? (
-                  <View className="mt-4 self-start rounded-full bg-[#F1E4DA] px-3 py-1">
-                    <Text className="text-[12px] font-inter-semibold text-[#8A8A8A]">
+                  <View className="mt-4 self-start rounded-full bg-[#F1E4DA] dark:bg-[#2B2420] px-3 py-1">
+                    <Text className="text-[12px] font-inter-semibold text-[#8A8A8A] dark:text-[#A39A91]">
                       Currently unavailable
                     </Text>
                   </View>
@@ -194,24 +196,24 @@ export default function ProductDetail() {
               </View>
             </ScrollView>
 
-            <View className="flex-row items-center gap-3 border-t border-[#EDE4D9] px-5 pb-3 pt-3">
-              <View className="flex-row items-center gap-4 rounded-2xl border border-[#EDE4D9] px-3 py-2">
+            <View className="flex-row items-center gap-3 border-t border-[#EDE4D9] dark:border-[#2E2924] px-5 pb-3 pt-3">
+              <View className="flex-row items-center gap-4 rounded-2xl border border-[#EDE4D9] dark:border-[#2E2924] px-3 py-2">
                 <Pressable
                   onPress={() => setQty((q) => Math.max(1, q - 1))}
                   hitSlop={8}
                 >
-                  <Ionicons name="remove" size={18} color="#1F1F1F" />
+                  <Ionicons name="remove" size={18} color={t("#1F1F1F")} />
                 </Pressable>
-                <Text className="text-[16px] font-inter-bold text-[#1F1F1F]">{qty}</Text>
+                <Text className="text-[16px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">{qty}</Text>
                 <Pressable onPress={() => setQty((q) => q + 1)} hitSlop={8}>
-                  <Ionicons name="add" size={18} color="#1F1F1F" />
+                  <Ionicons name="add" size={18} color={t("#1F1F1F")} />
                 </Pressable>
               </View>
               <Pressable
                 onPress={handleAddToCart}
                 disabled={!p.isActive}
                 className="flex-1 items-center justify-center rounded-2xl py-4"
-                style={{ backgroundColor: p.isActive ? "#FF6B4A" : "#F3C9B8" }}
+                style={{ backgroundColor: p.isActive ? "#FF6B4A" : t("#F3C9B8") }}
               >
                 <Text className="text-[16px] font-inter-bold text-white">
                   {p.isActive ? "Add to Cart" : "Currently unavailable"}

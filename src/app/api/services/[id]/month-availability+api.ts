@@ -3,13 +3,14 @@ import { db } from "@/db";
 import { services } from "@/db/schema";
 import { addDays, hasOpenSlots, parseYmd, ymd } from "@/lib/booking";
 import { loadAvailability, loadBookedAppointmentsInRange } from "@/lib/serviceAvailability";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET /api/services/[id]/month-availability?month=YYYY-MM — public.
  * Which dates in the month have at least one open slot, for the booking
  * calendar's dots — computed in one request instead of one per day.
  */
-export async function GET(request: Request, { id }: Record<string, string>) {
+export const GET = withApi(async (request: Request, { id }: Record<string, string>) => {
   const url = new URL(request.url);
   const month = url.searchParams.get("month");
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {
@@ -64,4 +65,4 @@ export async function GET(request: Request, { id }: Record<string, string>) {
   }
 
   return Response.json({ openDates });
-}
+});

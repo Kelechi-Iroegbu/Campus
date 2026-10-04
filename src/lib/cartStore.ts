@@ -8,10 +8,14 @@ export type CartItem = {
   quantity: number;
 };
 
+export type FulfillmentType = "pickup" | "delivery";
+
 type CartState = {
   vendorId: string | null;
   vendorName: string | null;
   items: CartItem[];
+  fulfillmentType: FulfillmentType;
+  dropoffNote: string;
   /**
    * Adds an item, or increments its quantity if already in the cart.
    * Returns "different_vendor" (without mutating state) if the cart already
@@ -30,6 +34,8 @@ type CartState = {
   ) => void;
   updateQuantity: (productId: string, delta: number) => void;
   removeItem: (productId: string) => void;
+  setFulfillmentType: (type: FulfillmentType) => void;
+  setDropoffNote: (note: string) => void;
   clear: () => void;
 };
 
@@ -37,6 +43,8 @@ export const useCartStore = create<CartState>((set, get) => ({
   vendorId: null,
   vendorName: null,
   items: [],
+  fulfillmentType: "pickup",
+  dropoffNote: "",
 
   addItem: (vendorId, vendorName, item) => {
     const state = get();
@@ -85,7 +93,17 @@ export const useCartStore = create<CartState>((set, get) => ({
     });
   },
 
-  clear: () => set({ vendorId: null, vendorName: null, items: [] }),
+  setFulfillmentType: (type) => set({ fulfillmentType: type }),
+  setDropoffNote: (note) => set({ dropoffNote: note }),
+
+  clear: () =>
+    set({
+      vendorId: null,
+      vendorName: null,
+      items: [],
+      fulfillmentType: "pickup",
+      dropoffNote: "",
+    }),
 }));
 
 export function cartSubtotalMinor(items: CartItem[]): number {

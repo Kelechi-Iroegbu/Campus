@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { vendorProfiles } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
 import { inngest } from "@/inngest/client";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * POST /api/vendor-applications/[id]/reject  (admin only)
@@ -11,7 +12,7 @@ import { inngest } from "@/inngest/client";
  * The vendor can edit and resubmit (POST /api/vendor-applications flips it
  * back to `pending`). Emits `vendor/application.rejected`.
  */
-export async function POST(request: Request, { id }: Record<string, string>) {
+export const POST = withApi(async (request: Request, { id }: Record<string, string>) => {
   let admin;
   try {
     admin = await requireAdmin(request);
@@ -62,4 +63,4 @@ export async function POST(request: Request, { id }: Record<string, string>) {
   });
 
   return Response.json({ application: updated });
-}
+});

@@ -1,13 +1,14 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { orderItems, orders, vendorProfiles } from "@/db/schema";
+import { deliveryJobs, orderItems, orders, vendorProfiles } from "@/db/schema";
 import { requireProfile } from "@/lib/auth";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET /api/orders/[id] — order detail. Viewable by the owning student or the
  * owning vendor.
  */
-export async function GET(request: Request, { id }: Record<string, string>) {
+export const GET = withApi(async (request: Request, { id }: Record<string, string>) => {
   let profile;
   try {
     profile = await requireProfile(request);
@@ -40,10 +41,17 @@ export async function GET(request: Request, { id }: Record<string, string>) {
     .from(orderItems)
     .where(eq(orderItems.orderId, id));
 
+  const [deliveryJob] = await db
+    .select()
+    .from(deliveryJobs)
+    .where(eq(deliveryJobs.orderId, id))
+    .limit(1);
+
   return Response.json({
     order: row.order,
     vendorName: row.vendorName,
     vendorCoverPhotoUrl: row.vendorCoverPhotoUrl,
     items,
+    deliveryJob: deliveryJob ?? null,
   });
-}
+});

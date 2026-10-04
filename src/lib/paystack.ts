@@ -6,6 +6,7 @@
  *
  * Amounts are always in minor units (kobo) — Paystack expects and returns kobo.
  */
+import * as Sentry from "@sentry/react-native";
 
 const BASE_URL = "https://api.paystack.co";
 
@@ -25,30 +26,43 @@ type PaystackResponse<T> = {
   data: T;
 };
 
-async function paystackFetch<T>(
+function paystackFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${secretKey()}`,
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
+  const method = init?.method ?? "GET";
+  return Sentry.startSpan(
+    { op: "http.client", name: `Paystack ${method} ${path}` },
+    async (span) => {
+      const res = await fetch(`${BASE_URL}${path}`, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${secretKey()}`,
+          "Content-Type": "application/json",
+          ...(init?.headers ?? {}),
+        },
+      });
+      span.setAttribute("http.response.status_code", res.status);
+
+      const body = (await res.json().catch(() => null)) as
+        | PaystackResponse<T>
+        | null;
+
+      if (!res.ok || !body || body.status !== true) {
+        const message =
+          body?.message ?? `Paystack request failed (${res.status} ${path})`;
+        span.setStatus({ code: 2, message: "internal_error" });
+        Sentry.logger.error(Sentry.logger.fmt`Paystack request failed: ${path}`, {
+          path,
+          status: res.status,
+          message,
+        });
+        throw new Error(message);
+      }
+
+      return body.data;
     },
-  });
-
-  const body = (await res.json().catch(() => null)) as
-    | PaystackResponse<T>
-    | null;
-
-  if (!res.ok || !body || body.status !== true) {
-    const message =
-      body?.message ?? `Paystack request failed (${res.status} ${path})`;
-    throw new Error(message);
-  }
-
-  return body.data;
+  );
 }
 
 export type InitializeTransactionResult = {
@@ -172,6 +186,68 @@ export function resolveAccountNumber(params: {
     `/bank/resolve?account_number=${encodeURIComponent(
       params.accountNumber,
     )}&bank_code=${encodeURIComponent(params.bankCode)}`,
+  );
+}
+
+export type BankListEntry = { name: string; code: string };
+
+/**
+ * List Nigerian banks (incl. fintech "banks" like Kuda/OPay) with their
+ * Paystack bank codes — fetched live rather than hardcoded, since a wrong
+ * code means a real transfer to the wrong institution (Milestone 7).
+ */
+export function listBanks(): Promise<BankListEntry[]> {
+  return paystackFetch<BankListEntry[]>("/bank?country=nigeria&currency=NGN");
+}
+
+export type VerifyTransferResult = {
+  status: "success" | "failed" | "pending" | "reversed" | string;
+  reference: string;
+  transfer_code: string;
+};
+
+/**
+ * Reconcile a transfer's real status directly with Paystack — used when an
+ * `initiateTransfer` call errors ambiguously (e.g. a dropped connection) to
+ * tell "actually went through" apart from "genuinely failed" before ever
+ * refunding a wallet (Milestone 7). Returns `null` on a 404 rather than
+ * throwing — Paystack's own docs note the endpoint can 404 in the instant
+ * right after initiation, which the caller treats as "not yet, try again"
+ * rather than "failed". Doesn't reuse `paystackFetch` because that helper
+ * always throws on a non-ok response; this one needs to distinguish a 404
+ * from every other failure.
+ */
+export function verifyTransfer(
+  reference: string,
+): Promise<VerifyTransferResult | null> {
+  const path = `/transfer/verify/${encodeURIComponent(reference)}`;
+  return Sentry.startSpan(
+    { op: "http.client", name: `Paystack GET ${path}` },
+    async (span) => {
+      const res = await fetch(`${BASE_URL}${path}`, {
+        headers: {
+          Authorization: `Bearer ${secretKey()}`,
+          "Content-Type": "application/json",
+        },
+      });
+      span.setAttribute("http.response.status_code", res.status);
+      if (res.status === 404) return null;
+
+      const body = (await res.json().catch(() => null)) as
+        | PaystackResponse<VerifyTransferResult>
+        | null;
+      if (!res.ok || !body || body.status !== true) {
+        const message = body?.message ?? `Paystack request failed (${res.status} ${path})`;
+        span.setStatus({ code: 2, message: "internal_error" });
+        Sentry.logger.error(Sentry.logger.fmt`Paystack transfer verify failed: ${reference}`, {
+          reference,
+          status: res.status,
+          message,
+        });
+        throw new Error(message);
+      }
+      return body.data;
+    },
   );
 }
 

@@ -4,9 +4,10 @@ import { appointments } from "@/db/schema";
 import { requireVendor } from "@/lib/vendor";
 import { completeAppointment } from "@/lib/appointments";
 import { sendPushToProfile } from "@/lib/push";
+import { withApi } from "@/lib/apiHandler";
 
 /** POST /api/vendor/appointments/[id]/complete — confirmed -> completed; credits the vendor. */
-export async function POST(request: Request, { id }: Record<string, string>) {
+export const POST = withApi(async (request: Request, { id }: Record<string, string>) => {
   let vendor;
   try {
     ({ vendor } = await requireVendor(request, { approved: true, offeringType: "service" }));
@@ -19,7 +20,7 @@ export async function POST(request: Request, { id }: Record<string, string>) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
-  const result = await completeAppointment(id);
+  const result = await completeAppointment(id, vendor.id);
   if (!result.ok) {
     return Response.json(
       { error: result.reason === "not_found" ? "Not found" : "Appointment isn't ready to complete" },
@@ -34,4 +35,4 @@ export async function POST(request: Request, { id }: Record<string, string>) {
   });
 
   return Response.json({ ok: true });
-}
+});

@@ -4,9 +4,10 @@ import { appointments } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { cancelAppointment } from "@/lib/appointments";
 import { inngest } from "@/inngest/client";
+import { withApi } from "@/lib/apiHandler";
 
 /** POST /api/appointments/[id]/cancel — student-side cancel, full refund. */
-export async function POST(request: Request, { id }: Record<string, string>) {
+export const POST = withApi(async (request: Request, { id }: Record<string, string>) => {
   let user;
   try {
     user = await requireUser(request);
@@ -19,7 +20,7 @@ export async function POST(request: Request, { id }: Record<string, string>) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
-  const result = await cancelAppointment(id, "student");
+  const result = await cancelAppointment(id, "student", user.id);
   if (!result.ok) {
     const message =
       result.reason === "not_found"
@@ -38,4 +39,4 @@ export async function POST(request: Request, { id }: Record<string, string>) {
   }
 
   return Response.json({ ok: true });
-}
+});

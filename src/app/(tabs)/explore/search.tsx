@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -12,8 +12,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { vendors } from "@/data/vendors";
 import { useApi } from "@/lib/api";
+import {
+  VendorTypeFilterSheet,
+  type VendorTypeFilter,
+} from "@/components/VendorTypeFilterSheet";
+import { ListState } from "@/components/ListState";
+import { useTheme } from "@/lib/theme";
 
 type SearchHit = {
   id: string;
@@ -35,7 +40,25 @@ const cardShadow = {
 const TRENDING_PER_PAGE = 3;
 const TREND_GAP = 12;
 
-const recentSearches = ["Jollof Rice", "Chicken Wings", "Nails", "Moimoi"];
+const RECENT_SEARCHES_MAX = 8;
+
+// In-memory only, for the lifetime of the app session — not persisted across
+// restarts. Real persistence would need a native storage module (e.g.
+// AsyncStorage), which requires rebuilding the dev client to link in; not
+// worth that cost for what's otherwise a minor convenience feature.
+let recentSearchesStore: string[] = [];
+
+function loadRecentSearches(): string[] {
+  return recentSearchesStore;
+}
+
+function pushRecentSearch(term: string): string[] {
+  recentSearchesStore = [
+    term,
+    ...recentSearchesStore.filter((t) => t.toLowerCase() !== term.toLowerCase()),
+  ].slice(0, RECENT_SEARCHES_MAX);
+  return recentSearchesStore;
+}
 
 const popularSearches = [
   "Jollof Rice",
@@ -48,108 +71,84 @@ const popularSearches = [
   "Perfume",
 ];
 
-type Trending = {
-  key: string;
-  name: string;
-  category: string;
-  distance: string;
-  image?: number;
-  icon?: keyof typeof Ionicons.glyphMap;
-  iconBg?: string;
-  iconColor?: string;
-};
-
-function fromVendor(key: string): Trending {
-  const vendor = vendors.find((v) => v.key === key)!;
-  return {
-    key: vendor.key,
-    name: vendor.name,
-    category: vendor.category,
-    distance: vendor.distance,
-    image: vendor.image,
-  };
-}
-
-const trending: Trending[] = [
-  {
-    key: "mama-t",
-    name: "Mama T's Kitchen",
-    category: "Meals",
-    distance: "0.4 km",
-    image: require("@/assets/images/home/vendor-mama-t.png"),
-  },
-  {
-    key: "nails-by-zee",
-    name: "Nail's By Zee",
-    category: "Nails",
-    distance: "0.3 km",
-    icon: "color-palette-outline",
-    iconBg: "#FBE4EE",
-    iconColor: "#E0558B",
-  },
-  {
-    key: "send-deliver",
-    name: "Send & Deliver",
-    category: "Logistics",
-    distance: "0.5 km",
-    icon: "bicycle-outline",
-    iconBg: "#E3ECFC",
-    iconColor: "#3A6FE0",
-  },
-  fromVendor("bakes-fola"),
-  fromVendor("zee-drinks"),
-  fromVendor("campus-bites"),
-  fromVendor("grill-house"),
-  fromVendor("sweet-treats"),
-  fromVendor("juice-bar"),
-  fromVendor("noodle-spot"),
-  fromVendor("tasty-corner"),
-  fromVendor("bread-basket"),
-];
-
 function Pill({ label, onPress }: { label: string; onPress: () => void }) {
   return (
     <Pressable
       style={cardShadow}
       onPress={onPress}
-      className="rounded-full bg-white px-4 py-[10px]"
+      className="rounded-full bg-white dark:bg-[#201B17] px-4 py-[10px]"
     >
-      <Text className="text-[14px] font-inter-medium text-[#1F1F1F]">{label}</Text>
+      <Text className="text-[14px] font-inter-medium text-[#1F1F1F] dark:text-[#F3EEE8]">{label}</Text>
     </Pressable>
   );
 }
 
 export default function ExploreSearch() {
+  const { t, isDark } = useTheme();
   const router = useRouter();
   const api = useApi();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<VendorTypeFilter>("all");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<string[]>(loadRecentSearches);
+  const [trending, setTrending] = useState<SearchHit[]>([]);
+  const [trendingError, setTrendingError] = useState(false);
+  const [searchError, setSearchError] = useState(false);
 
   const trimmed = query.trim();
   const showResults = trimmed.length >= 2;
 
+  const loadTrending = useCallback(async () => {
+    setTrendingError(false);
+    try {
+      const qs = typeFilter !== "all" ? `?type=${typeFilter}` : "";
+      const res = await api(`/api/vendors${qs}`);
+      const j = (await res.json()) as { vendors?: SearchHit[] };
+      setTrending(j.vendors ?? []);
+    } catch {
+      setTrendingError(true);
+    }
+  }, [api, typeFilter]);
+
+  useEffect(() => {
+    void (async () => {
+      await loadTrending();
+    })();
+  }, [loadTrending]);
+
+  const runSearch = useCallback(
+    async (term: string) => {
+      setSearching(true);
+      setSearchError(false);
+      try {
+        const qs = typeFilter !== "all" ? `&type=${typeFilter}` : "";
+        const res = await api(`/api/vendors?q=${encodeURIComponent(term)}${qs}`);
+        const j = (await res.json()) as { vendors?: SearchHit[] };
+        setResults(j.vendors ?? []);
+        setRecentSearches(pushRecentSearch(term));
+      } catch {
+        setResults([]);
+        setSearchError(true);
+      } finally {
+        setSearching(false);
+      }
+    },
+    [api, typeFilter],
+  );
+
   useEffect(() => {
     if (trimmed.length < 2) return;
     let cancelled = false;
-    const t = setTimeout(async () => {
-      if (cancelled) return;
-      setSearching(true);
-      try {
-        const res = await api(`/api/vendors?q=${encodeURIComponent(trimmed)}`);
-        const j = (await res.json()) as { vendors?: SearchHit[] };
-        if (!cancelled) setResults(j.vendors ?? []);
-      } catch {
-        if (!cancelled) setResults([]);
-      } finally {
-        if (!cancelled) setSearching(false);
-      }
+    const t = setTimeout(() => {
+      if (!cancelled) void runSearch(trimmed);
     }, 300);
     return () => {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [api, trimmed]);
+  }, [trimmed, runSearch]);
 
   const [cardHeight, setCardHeight] = useState<number | null>(null);
   const [activePage, setActivePage] = useState(0);
@@ -162,9 +161,9 @@ export default function ExploreSearch() {
   const pageCount = Math.ceil(trending.length / TRENDING_PER_PAGE);
 
   return (
-    <View className="flex-1 bg-[#FBF3EC]">
+    <View className="flex-1 bg-[#FBF3EC] dark:bg-[#15120F]">
       <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? "light" : "dark"} />
       <SafeAreaView className="flex-1" edges={["top"]}>
       {/* Fixed content — search + recent/popular searches never scroll,
           only the trending list below does (in pages of 3). */}
@@ -172,54 +171,61 @@ export default function ExploreSearch() {
         {/* Back */}
         <View className="flex-row items-center px-4 pt-3">
           <Pressable onPress={() => router.back()} hitSlop={8}>
-            <Ionicons name="chevron-back" size={24} color="#1F1F1F" />
+            <Ionicons name="chevron-back" size={24} color={t("#1F1F1F")} />
           </Pressable>
         </View>
 
         {/* Header */}
         <View className="px-3 pt-1">
-          <Text className="text-[30px] font-inter-bold text-[#1F1F1F]">Search</Text>
+          <Text className="text-[30px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">Search</Text>
         </View>
 
         {/* Search */}
         <View className="mt-4 flex-row items-center gap-2 px-3">
           <View
             style={cardShadow}
-            className="h-[52px] flex-1 flex-row items-center gap-2 rounded-full bg-white px-4"
+            className="h-[52px] flex-1 flex-row items-center gap-2 rounded-full bg-white dark:bg-[#201B17] px-4"
           >
-            <Ionicons name="search-outline" size={18} color="#8A8A8A" />
+            <Ionicons name="search-outline" size={18} color={t("#8A8A8A")} />
             <TextInput
               autoFocus
               value={query}
               onChangeText={setQuery}
               placeholder="Search vendors, jolof, nails..."
-              placeholderTextColor="#8A8A8A"
-              className="flex-1 text-[14px] font-inter-regular text-[#1F1F1F]"
+              placeholderTextColor={t("#8A8A8A")}
+              className="flex-1 text-[14px] font-inter-regular text-[#1F1F1F] dark:text-[#F3EEE8]"
             />
           </View>
           <Pressable
             style={cardShadow}
-            className="h-[52px] w-[52px] items-center justify-center rounded-2xl bg-white"
+            className="h-[52px] w-[52px] items-center justify-center rounded-2xl bg-white dark:bg-[#201B17]"
+            onPress={() => setFilterOpen(true)}
           >
-            <Ionicons name="options-outline" size={20} color="#1F1F1F" />
+            <Ionicons
+              name="options-outline"
+              size={20}
+              color={typeFilter !== "all" ? "#FF6B4A" : t("#1F1F1F")}
+            />
           </Pressable>
         </View>
 
         {/* Recent Searches */}
-        <View className="mt-6 px-3">
-          <Text className="text-[18px] font-inter-bold text-[#1F1F1F]">
-            Recent Searches
-          </Text>
-          <View className="mt-3 flex-row flex-wrap gap-2">
-            {recentSearches.map((term) => (
-              <Pill key={term} label={term} onPress={() => setQuery(term)} />
-            ))}
+        {recentSearches.length > 0 ? (
+          <View className="mt-6 px-3">
+            <Text className="text-[18px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
+              Recent Searches
+            </Text>
+            <View className="mt-3 flex-row flex-wrap gap-2">
+              {recentSearches.map((term) => (
+                <Pill key={term} label={term} onPress={() => setQuery(term)} />
+              ))}
+            </View>
           </View>
-        </View>
+        ) : null}
 
         {/* Popular Searches */}
         <View className="mt-6 px-3">
-          <Text className="text-[18px] font-inter-bold text-[#1F1F1F]">
+          <Text className="text-[18px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
             Popular Searches
           </Text>
           <View className="mt-3 flex-row flex-wrap gap-2">
@@ -231,7 +237,7 @@ export default function ExploreSearch() {
 
         {/* Trending on CampUs */}
         <View className="mt-6 px-3 pb-3">
-          <Text className="text-[18px] font-inter-bold text-[#1F1F1F]">
+          <Text className="text-[18px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]">
             {showResults ? "Results" : "Trending on CampUs"}
           </Text>
         </View>
@@ -246,8 +252,14 @@ export default function ExploreSearch() {
         >
           {results === null || (searching && results.length === 0) ? (
             <ActivityIndicator color="#FF6B4A" style={{ marginTop: 32 }} />
+          ) : searchError ? (
+            <ListState
+              variant="error"
+              title="Couldn't load results. Check your connection and try again."
+              onRetry={() => runSearch(trimmed)}
+            />
           ) : results.length === 0 ? (
-            <Text className="mt-8 px-2 text-[14px] font-inter-regular text-[#8A8A8A]">
+            <Text className="mt-8 px-2 text-[14px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">
               No vendors match “{trimmed}”.
             </Text>
           ) : (
@@ -256,7 +268,7 @@ export default function ExploreSearch() {
                 key={hit.id}
                 style={cardShadow}
                 onPress={() => router.push(`/store/${hit.id}` as never)}
-                className="flex-row items-center gap-3 rounded-[18px] bg-white p-3"
+                className="flex-row items-center gap-3 rounded-[18px] bg-white dark:bg-[#201B17] p-3"
               >
                 <View
                   style={{
@@ -264,7 +276,7 @@ export default function ExploreSearch() {
                     height: 64,
                     borderRadius: 14,
                     overflow: "hidden",
-                    backgroundColor: "#F3E8DD",
+                    backgroundColor: t("#F3E8DD"),
                     alignItems: "center",
                     justifyContent: "center",
                   }}
@@ -290,18 +302,18 @@ export default function ExploreSearch() {
                 <View className="flex-1 shrink">
                   <Text
                     numberOfLines={1}
-                    className="text-[15px] font-inter-bold text-[#1F1F1F]"
+                    className="text-[15px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]"
                   >
                     {hit.displayName}
                   </Text>
                   <Text
                     numberOfLines={1}
-                    className="mt-0.5 text-[13px] font-inter-regular text-[#8A8A8A]"
+                    className="mt-0.5 text-[13px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]"
                   >
                     {hit.description || hit.categoryName || "Campus vendor"}
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color="#C9C0B4" />
+                <Ionicons name="chevron-forward" size={18} color={t("#C9C0B4")} />
               </Pressable>
             ))
           )}
@@ -325,53 +337,60 @@ export default function ExploreSearch() {
             setActivePage(Math.max(0, Math.min(pageCount - 1, page)));
           }}
         >
+          {trendingError && trending.length === 0 ? (
+            <ListState
+              variant="error"
+              title="Couldn't load vendors. Check your connection and try again."
+              onRetry={loadTrending}
+            />
+          ) : trending.length === 0 ? (
+            <Text className="mt-8 px-2 text-[14px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]">
+              No vendors on your campus yet.
+            </Text>
+          ) : null}
           {trending.map((item, index) => (
             <Pressable
-              key={item.key}
+              key={item.id}
               style={cardShadow}
-              className="flex-row items-center gap-3 rounded-[18px] bg-white p-3"
-              onPress={() => router.push(`/store/${item.key}` as never)}
+              className="flex-row items-center gap-3 rounded-[18px] bg-white dark:bg-[#201B17] p-3"
+              onPress={() => router.push(`/store/${item.id}` as never)}
               onLayout={
                 index === 0
                   ? (e) => setCardHeight(e.nativeEvent.layout.height)
                   : undefined
               }
             >
-              {item.image ? (
+              {item.coverPhotoUrl ? (
                 <Image
-                  source={item.image}
+                  source={{ uri: item.coverPhotoUrl }}
                   style={{ width: 72, height: 72, borderRadius: 14 }}
                   resizeMode="cover"
                 />
               ) : (
                 <View
-                  style={{
-                    width: 72,
-                    height: 72,
-                    borderRadius: 14,
-                    backgroundColor: item.iconBg,
-                  }}
+                  style={{ width: 72, height: 72, borderRadius: 14, backgroundColor: t("#F3E8DD") }}
                   className="items-center justify-center"
                 >
-                  <Ionicons name={item.icon!} size={30} color={item.iconColor} />
+                  <Ionicons
+                    name={item.offeringType === "service" ? "sparkles-outline" : "fast-food-outline"}
+                    size={30}
+                    color="#C9A98D"
+                  />
                 </View>
               )}
               <View className="flex-1 shrink">
                 <Text
                   numberOfLines={1}
-                  className="text-[16px] font-inter-bold text-[#1F1F1F]"
+                  className="text-[16px] font-inter-bold text-[#1F1F1F] dark:text-[#F3EEE8]"
                 >
-                  {item.name}
+                  {item.displayName}
                 </Text>
-                <View className="mt-1 flex-row items-center gap-1">
-                  <Text className="text-[13px] font-inter-regular text-[#8A8A8A]">
-                    {item.category}
-                  </Text>
-                  <Text className="text-[13px] text-[#8A8A8A]"> · </Text>
-                  <Text className="text-[13px] font-inter-regular text-[#8A8A8A]">
-                    {item.distance}
-                  </Text>
-                </View>
+                <Text
+                  numberOfLines={1}
+                  className="mt-1 text-[13px] font-inter-regular text-[#8A8A8A] dark:text-[#A39A91]"
+                >
+                  {item.description || item.categoryName || "Campus vendor"}
+                </Text>
               </View>
             </Pressable>
           ))}
@@ -390,7 +409,7 @@ export default function ExploreSearch() {
                 width: i === activePage ? 18 : 6,
                 height: 6,
                 borderRadius: 3,
-                backgroundColor: i === activePage ? "#FF6B4A" : "#F2D8C8",
+                backgroundColor: i === activePage ? "#FF6B4A" : t("#F2D8C8"),
               }}
             />
           ))}
@@ -399,6 +418,13 @@ export default function ExploreSearch() {
         </>
       )}
       </SafeAreaView>
+
+      <VendorTypeFilterSheet
+        visible={filterOpen}
+        value={typeFilter}
+        onClose={() => setFilterOpen(false)}
+        onChange={setTypeFilter}
+      />
     </View>
   );
 }

@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -10,8 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { Stack, useRouter } from "expo-router";
-import { setOnline, useCourierStore } from "@/data/courier";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { GREEN, HEADING, ORANGE, SCREEN_BG, SUBTLE } from "@/components/courier/theme";
 import { useApi } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -27,14 +27,21 @@ const cardStyle = {
   borderRadius: 16,
 };
 
+function maskAccountNumber(accountNumber: string | null): string {
+  if (!accountNumber) return "";
+  return accountNumber.length <= 4 ? accountNumber : `••${accountNumber.slice(-4)}`;
+}
+
 function Row({
   icon,
   label,
+  trailing,
   onPress,
   danger,
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
+  trailing?: React.ReactNode;
   onPress?: () => void;
   danger?: boolean;
 }) {
@@ -51,7 +58,7 @@ function Row({
       >
         {label}
       </Text>
-      <Ionicons name="chevron-forward" size={18} color="#C4BEB4" />
+      {trailing ?? <Ionicons name="chevron-forward" size={18} color="#C4BEB4" />}
     </Pressable>
   );
 }
@@ -59,10 +66,65 @@ function Row({
 export default function CourierProfile() {
   const router = useRouter();
   const signOut = useSignOut();
-  const { online } = useCourierStore();
+  const [online, setOnline] = useState(true);
+  const [togglingOnline, setTogglingOnline] = useState(false);
   const api = useApi();
   const { me, refetch, switchRole } = useSession();
   const { pickAndUpload, uploading, error: uploadError } = useImageUpload();
+  const [bankDetails, setBankDetails] = useState<{
+    bankName: string;
+    bankAccountNumber: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (me?.vendor) setOnline(me.vendor.isOpen);
+  }, [me?.vendor]);
+
+  async function toggleOnline() {
+    if (togglingOnline) return;
+    const next = !online;
+    setOnline(next); // optimistic
+    setTogglingOnline(true);
+    try {
+      const res = await api("/api/vendor/store-status", {
+        method: "PATCH",
+        body: JSON.stringify({ isOpen: next }),
+      });
+      if (!res.ok) throw new Error(`store-status ${res.status}`);
+      await refetch();
+    } catch (err) {
+      setOnline(!next); // revert on failure
+      console.error("Failed to update online status", err);
+    } finally {
+      setTogglingOnline(false);
+    }
+  }
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const res = await api("/api/vendor/bank-details");
+          if (!res.ok || cancelled) return;
+          const data = (await res.json()) as {
+            bankName: string | null;
+            bankAccountNumber: string | null;
+          };
+          setBankDetails(
+            data.bankName && data.bankAccountNumber
+              ? { bankName: data.bankName, bankAccountNumber: data.bankAccountNumber }
+              : null,
+          );
+        } catch {
+          // keep showing whatever was last loaded
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [api]),
+  );
 
   const onEditPhoto = async () => {
     const url = await pickAndUpload({ aspect: [1, 1] });
@@ -136,7 +198,7 @@ export default function CourierProfile() {
                   style={{ fontSize: 18, color: HEADING }}
                   numberOfLines={1}
                 >
-                  Mama Ngozi&apos;s Kitchen
+                  {me?.vendor?.displayName ?? "Your rider account"}
                 </Text>
                 <View
                   className="mt-2 flex-row items-center self-start gap-1 rounded-full px-2.5 py-1"
@@ -154,7 +216,7 @@ export default function CourierProfile() {
             </View>
           </View>
 
-          {/* Online status */}
+          {/* Online status — shared with the dashboard via me.vendor.isOpen */}
           <View
             className="mt-4 flex-row items-center rounded-2xl p-4"
             style={cardStyle}
@@ -173,7 +235,7 @@ export default function CourierProfile() {
                 {online ? "Ready to receive orders" : "Won't get new requests"}
               </Text>
             </View>
-            <Pressable onPress={() => setOnline(!online)} hitSlop={6}>
+            <Pressable onPress={toggleOnline} disabled={togglingOnline} hitSlop={6}>
               <View
                 style={{
                   width: 52,
@@ -204,10 +266,33 @@ export default function CourierProfile() {
             Account
           </Text>
           <View className="overflow-hidden rounded-2xl" style={cardStyle}>
-            <Row icon="bicycle-outline" label="Vehicle & coverage area" />
-            <Row icon="cash-outline" label="Payout account" />
-            <Row icon="shield-checkmark-outline" label="Verification" />
-            <Row icon="help-circle-outline" label="Help & Support" />
+            <Row
+              icon="bicycle-outline"
+              label="Vehicle & coverage area"
+              onPress={() => router.push("/courier/profile/vehicle" as never)}
+            />
+            <Row
+              icon="cash-outline"
+              label="Payout account"
+              trailing={
+                <Text className="text-[13px] font-inter-medium" style={{ color: SUBTLE }}>
+                  {bankDetails
+                    ? `${bankDetails.bankName} ${maskAccountNumber(bankDetails.bankAccountNumber)}`
+                    : "Add account"}
+                </Text>
+              }
+              onPress={() => router.push("/courier/profile/bank-details" as never)}
+            />
+            <Row
+              icon="shield-checkmark-outline"
+              label="Verification"
+              onPress={() => router.push("/courier/profile/verification" as never)}
+            />
+            <Row
+              icon="help-circle-outline"
+              label="Help & Support"
+              onPress={() => router.push("/profile/help-support")}
+            />
           </View>
 
           <Text

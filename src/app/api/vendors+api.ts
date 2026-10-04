@@ -1,20 +1,28 @@
-import { and, asc, eq, ilike, or } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, or } from "drizzle-orm";
 import { db } from "@/db";
 import { categories, vendorProfiles } from "@/db/schema";
 import { getProfile } from "@/lib/auth";
+import { withApi } from "@/lib/apiHandler";
 
 /**
- * GET /api/vendors?type=product|service|all&q=&categoryId=
+ * GET /api/vendors?type=product|service|all&q=&categoryId=&categorySlugs=a,b
+ *
+ * `categorySlugs` matches vendors in ANY of the given category slugs — used by
+ * the Home/Explore category tiles, which each cover several DB categories.
  *
  * Approved vendors for the student's campus (falls back to all campuses if the
  * caller has no campus set). Powers the student Home feed + Explore.
  */
-export async function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   const profile = await getProfile(request);
   const url = new URL(request.url);
   const type = url.searchParams.get("type");
   const q = url.searchParams.get("q")?.trim();
   const categoryId = url.searchParams.get("categoryId");
+  const categorySlugs = (url.searchParams.get("categorySlugs") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   const filters = [eq(vendorProfiles.status, "approved")];
 
@@ -26,6 +34,9 @@ export async function GET(request: Request) {
   }
   if (categoryId) {
     filters.push(eq(vendorProfiles.categoryId, categoryId));
+  }
+  if (categorySlugs.length > 0) {
+    filters.push(inArray(categories.slug, categorySlugs));
   }
   if (q) {
     const like = `%${q}%`;
@@ -45,6 +56,7 @@ export async function GET(request: Request) {
       coverPhotoUrl: vendorProfiles.coverPhotoUrl,
       categoryName: categories.name,
       categorySlug: categories.slug,
+      isOpen: vendorProfiles.isOpen,
     })
     .from(vendorProfiles)
     .leftJoin(categories, eq(vendorProfiles.categoryId, categories.id))
@@ -52,4 +64,4 @@ export async function GET(request: Request) {
     .orderBy(asc(vendorProfiles.displayName));
 
   return Response.json({ vendors: rows });
-}
+});

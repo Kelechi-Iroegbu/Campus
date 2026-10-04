@@ -1,12 +1,23 @@
-import { Image, Pressable, ScrollView, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import { Alert, Image, Pressable, ScrollView, Text, View } from "react-native";
 import type { ReactNode } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { useApi } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useVendorCopy, useVendorMode } from "@/lib/vendorMode";
+import { ListState } from "@/components/ListState";
+
+function naira(minor: number) {
+  return `₦${(minor / 100).toLocaleString()}`;
+}
+
+function isToday(iso: string) {
+  return new Date(iso).toDateString() === new Date().toDateString();
+}
 
 const HEADING = "#14142B";
 const ORANGE = "#F0531E";
@@ -31,70 +42,29 @@ const STATUS_STYLE: Record<Status, { bg: string; fg: string }> = {
 
 type RecentItem = {
   key: string;
-  customer: string;
-  location: string;
+  title: string;
   detail: string;
-  amount: string;
+  amountMinor: number;
   status: Status;
-  image?: number;
 };
 
-const RECENT_ORDERS: RecentItem[] = [
-  {
-    key: "1",
-    customer: "Chidinma A.",
-    location: "Block C, Rm 214",
-    detail: "Jollof Rice & Chicken × 2",
-    amount: "₦3,000",
-    status: "Preparing",
-    image: require("@/assets/images/vendor/food-puff-puff.png"),
-  },
-  {
-    key: "2",
-    customer: "Femi O.",
-    location: "Block A, Rm 108",
-    detail: "Fried Rice & Turkey × 1",
-    amount: "₦1,800",
-    status: "Ready",
-    image: require("@/assets/images/vendor/food-puff-puff.png"),
-  },
-  {
-    key: "3",
-    customer: "Amaka T.",
-    location: "Block B, Rm 302",
-    detail: "Moi Moi × 3",
-    amount: "₦1,200",
-    status: "Completed",
-    image: require("@/assets/images/vendor/food-moi-moi.png"),
-  },
-];
+const ORDER_STATUS: Record<string, Status> = {
+  placed: "Preparing",
+  accepted: "Preparing",
+  ready: "Ready",
+  completed: "Completed",
+  cancelled: "Completed",
+};
 
-const RECENT_BOOKINGS: RecentItem[] = [
-  {
-    key: "1",
-    customer: "Halima S.",
-    location: "Full Set Acrylics",
-    detail: "Today, 2:00 PM",
-    amount: "₦5,000",
-    status: "Preparing",
-  },
-  {
-    key: "2",
-    customer: "Ruth K.",
-    location: "Gel Polish (Toes)",
-    detail: "Today, 4:00 PM",
-    amount: "₦3,000",
-    status: "Ready",
-  },
-  {
-    key: "3",
-    customer: "Damilola A.",
-    location: "Nail Art (add-on)",
-    detail: "Yesterday",
-    amount: "₦1,500",
-    status: "Completed",
-  },
-];
+const APPT_STATUS: Record<string, Status> = {
+  booked: "Preparing",
+  confirmed: "Ready",
+  completed: "Completed",
+  cancelled: "Completed",
+  no_show: "Completed",
+};
+
+const RECENT_PREVIEW_COUNT = 3;
 
 function IconButton({ children }: { children: ReactNode }) {
   return (
@@ -130,11 +100,88 @@ function StatusPill({ status }: { status: Status }) {
 
 export default function VendorDashboard() {
   const router = useRouter();
+  const api = useApi();
   const { me } = useSession();
   const copy = useVendorCopy();
   const isService = useVendorMode() === "service";
-  const recent = isService ? RECENT_BOOKINGS : RECENT_ORDERS;
   const storeOpen = me?.vendor?.isOpen ?? true;
+
+  const [walletBalanceMinor, setWalletBalanceMinor] = useState<number | null>(null);
+  const [recent, setRecent] = useState<RecentItem[]>([]);
+  const [todayCount, setTodayCount] = useState(0);
+  const [todayRevenueMinor, setTodayRevenueMinor] = useState(0);
+  const [recentError, setRecentError] = useState(false);
+
+  const loadDashboard = useCallback(async () => {
+    setRecentError(false);
+    try {
+      const [walletRes, listRes] = await Promise.all([
+        api("/api/vendor/wallet"),
+        api(isService ? "/api/vendor/appointments" : "/api/vendor/orders"),
+      ]);
+      if (walletRes.ok) {
+        const w = (await walletRes.json()) as { balanceMinor?: number };
+        if (typeof w.balanceMinor === "number") setWalletBalanceMinor(w.balanceMinor);
+      }
+      if (listRes.ok) {
+        if (isService) {
+          const j = (await listRes.json()) as {
+            appointments: {
+              appointment: {
+                id: string;
+                status: string;
+                serviceName: string;
+                totalMinor: number;
+                scheduledStart: string;
+              };
+              studentName: string | null;
+            }[];
+          };
+          const items: RecentItem[] = j.appointments.map(({ appointment: a, studentName }) => ({
+            key: a.id,
+            title: studentName ?? "Student",
+            detail: a.serviceName,
+            amountMinor: a.totalMinor,
+            status: APPT_STATUS[a.status] ?? "Preparing",
+          }));
+          setRecent(items.slice(0, RECENT_PREVIEW_COUNT));
+          const today = j.appointments.filter((r) => isToday(r.appointment.scheduledStart));
+          setTodayCount(today.length);
+          setTodayRevenueMinor(today.reduce((sum, r) => sum + r.appointment.totalMinor, 0));
+        } else {
+          const j = (await listRes.json()) as {
+            orders: {
+              id: string;
+              status: string;
+              totalMinor: number;
+              placedAt: string;
+              items: { productName: string; quantity: number }[];
+            }[];
+          };
+          const items: RecentItem[] = j.orders.map((o) => ({
+            key: o.id,
+            title: `Order #${o.id.slice(0, 8)}`,
+            detail: o.items.map((i) => `${i.productName} × ${i.quantity}`).join(", "),
+            amountMinor: o.totalMinor,
+            status: ORDER_STATUS[o.status] ?? "Preparing",
+          }));
+          setRecent(items.slice(0, RECENT_PREVIEW_COUNT));
+          const today = j.orders.filter((o) => isToday(o.placedAt));
+          setTodayCount(today.length);
+          setTodayRevenueMinor(today.reduce((sum, o) => sum + o.totalMinor, 0));
+        }
+      }
+    } catch {
+      // keep showing whatever was last loaded
+      setRecentError(true);
+    }
+  }, [api, isService]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadDashboard();
+    }, [loadDashboard]),
+  );
 
   return (
     <View className="flex-1" style={{ backgroundColor: "#FBF7F2" }}>
@@ -171,13 +218,16 @@ export default function VendorDashboard() {
                   style={{ fontSize: 19, color: HEADING }}
                   numberOfLines={2}
                 >
-                  Mama Ngozi&apos;s Kitchen
+                  {me?.vendor?.displayName ?? "Your store"}
                 </Text>
               </View>
             </View>
             <View className="items-end gap-2.5">
               <View className="flex-row gap-2">
-                <View className="relative">
+                <Pressable
+                  className="relative"
+                  onPress={() => router.push("/notifications")}
+                >
                   <IconButton>
                     <Ionicons
                       name="notifications-outline"
@@ -189,10 +239,12 @@ export default function VendorDashboard() {
                     className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border-2 border-white"
                     style={{ backgroundColor: ORANGE }}
                   />
-                </View>
-                <IconButton>
-                  <Ionicons name="settings-outline" size={20} color="#1A1A1A" />
-                </IconButton>
+                </Pressable>
+                <Pressable onPress={() => Alert.alert("Coming soon", "Settings aren't built yet.")}>
+                  <IconButton>
+                    <Ionicons name="settings-outline" size={20} color="#1A1A1A" />
+                  </IconButton>
+                </Pressable>
               </View>
               <Pressable
                 onPress={() => router.push("/vendor/profile" as never)}
@@ -256,7 +308,7 @@ export default function VendorDashboard() {
                 WALLET BALANCE
               </Text>
               <Text className="mt-1.5 text-[40px] font-inter-bold text-white">
-                ₦18,400
+                {walletBalanceMinor !== null ? naira(walletBalanceMinor) : "—"}
               </Text>
 
               <View className="mt-4 flex-row gap-3">
@@ -264,20 +316,16 @@ export default function VendorDashboard() {
                   onPress={() => router.push("/vendor/wallet" as never)}
                   className="flex-1 flex-row items-center justify-center gap-2 rounded-2xl bg-white py-3.5"
                 >
-                  <MaterialCommunityIcons
-                    name="credit-card-plus-outline"
-                    size={20}
-                    color={ORANGE}
-                  />
+                  <MaterialCommunityIcons name="wallet-outline" size={20} color={ORANGE} />
                   <Text
                     className="text-[15px] font-inter-bold"
                     style={{ color: ORANGE }}
                   >
-                    Fund wallet
+                    View wallet
                   </Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => router.push("/vendor/wallet" as never)}
+                  onPress={() => router.push("/vendor/wallet/payout" as never)}
                   className="flex-1 flex-row items-center justify-center gap-2 rounded-2xl py-3.5"
                   style={{ backgroundColor: "rgba(255,255,255,0.22)" }}
                 >
@@ -310,7 +358,7 @@ export default function VendorDashboard() {
                 className="mt-3 font-inter-bold"
                 style={{ fontSize: 28, color: HEADING }}
               >
-                3
+                {todayCount}
               </Text>
             </View>
             <View className="flex-1 rounded-2xl p-4" style={cardBase}>
@@ -327,7 +375,7 @@ export default function VendorDashboard() {
                 className="mt-3 font-inter-bold"
                 style={{ fontSize: 24, color: HEADING }}
               >
-                {isService ? "₦9,500" : "₦6,000"}
+                {naira(todayRevenueMinor)}
               </Text>
             </View>
           </View>
@@ -397,32 +445,27 @@ export default function VendorDashboard() {
                 className="flex-row items-center gap-3 rounded-2xl"
                 style={[cardBase, { padding: isService ? 16 : 12 }]}
               >
-                {!isService &&
-                  (o.image != null ? (
-                    <Image
-                      source={o.image}
-                      style={{ width: 56, height: 56, borderRadius: 14 }}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View
-                      className="items-center justify-center rounded-2xl"
-                      style={{
-                        width: 56,
-                        height: 56,
-                        backgroundColor: "#FCE7EC",
-                      }}
-                    >
-                      <Ionicons name="cut-outline" size={24} color="#E8497A" />
-                    </View>
-                  ))}
+                <View
+                  className="items-center justify-center rounded-2xl"
+                  style={{
+                    width: 56,
+                    height: 56,
+                    backgroundColor: isService ? "#FCE7EC" : "#FCEEE2",
+                  }}
+                >
+                  <Ionicons
+                    name={isService ? "cut-outline" : "bag-handle-outline"}
+                    size={24}
+                    color={isService ? "#E8497A" : ORANGE}
+                  />
+                </View>
                 <View className="flex-1">
                   <Text
                     className="text-[14.5px] font-inter-bold"
                     style={{ color: HEADING }}
                     numberOfLines={1}
                   >
-                    {o.customer} {isService ? "·" : "•"} {o.location}
+                    {o.title}
                   </Text>
                   <Text
                     className="mt-1 text-[13px] font-inter-regular"
@@ -437,12 +480,26 @@ export default function VendorDashboard() {
                     className="text-[15px] font-inter-bold"
                     style={{ color: ORANGE }}
                   >
-                    {o.amount}
+                    {naira(o.amountMinor)}
                   </Text>
-                  {!isService && <StatusPill status={o.status} />}
+                  <StatusPill status={o.status} />
                 </View>
               </View>
             ))}
+            {recentError && recent.length === 0 ? (
+              <ListState
+                variant="error"
+                title="Couldn't load recent activity. Check your connection and try again."
+                onRetry={loadDashboard}
+              />
+            ) : recent.length === 0 ? (
+              <Text
+                className="text-center text-[13px] font-inter-regular"
+                style={{ color: SUBTLE }}
+              >
+                Nothing here yet.
+              </Text>
+            ) : null}
           </View>
         </ScrollView>
       </SafeAreaView>

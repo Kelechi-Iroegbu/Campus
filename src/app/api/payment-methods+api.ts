@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { paymentMethods } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
+import { withApi } from "@/lib/apiHandler";
 
 /**
  * GET /api/payment-methods
@@ -9,7 +10,7 @@ import { requireUser } from "@/lib/auth";
  * with a reusable authorization (see `verifyAndCreditTopup` in
  * `src/lib/wallet.ts`), never entered directly in the app.
  */
-export async function GET(request: Request) {
+export const GET = withApi(async (request: Request) => {
   let user;
   try {
     user = await requireUser(request);
@@ -33,4 +34,4 @@ export async function GET(request: Request) {
     .orderBy(desc(paymentMethods.isDefault), desc(paymentMethods.createdAt));
 
   return Response.json({ paymentMethods: rows });
-}
+});

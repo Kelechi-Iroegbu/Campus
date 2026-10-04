@@ -2,6 +2,7 @@ import { Image, Pressable, StyleProp, Text, View, ViewStyle } from "react-native
 import { Ionicons } from "@expo/vector-icons";
 import { ORANGE, TEXT_DARK, TEXT_GRAY, cardShadow } from "../vendor/theme";
 import { QuantityStepper, type CartLine } from "./CartItemRow";
+import { useTheme } from "@/lib/theme";
 
 function formatNaira(amount: number) {
   return `₦${amount.toLocaleString()}`;
@@ -23,9 +24,10 @@ export function CartItemHeroCard({
   onRemove?: () => void;
   style?: StyleProp<ViewStyle>;
 }) {
+  const { t } = useTheme();
   return (
     <View
-      className="overflow-hidden rounded-[22px] bg-white"
+      className="overflow-hidden rounded-[22px] bg-white dark:bg-[#201B17]"
       style={[{ ...cardShadow, shadowOpacity: 0.06 }, style]}
     >
       <View style={{ flex: 1 }}>
@@ -61,14 +63,14 @@ export function CartItemHeroCard({
 
         <View className="mt-4 flex-row items-center justify-between">
           <View className="flex-row items-center gap-3">
-            <View className="rounded-full px-3 py-[6px]" style={{ backgroundColor: "#FDE7D9" }}>
+            <View className="rounded-full px-3 py-[6px]" style={{ backgroundColor: t("#FDE7D9") }}>
               <Text className="text-[11px] font-inter-semibold" style={{ color: ORANGE }}>
                 Only item in your cart
               </Text>
             </View>
             {onRemove ? (
               <Pressable onPress={onRemove} hitSlop={8}>
-                <Ionicons name="trash-outline" size={18} color="#B8AC9C" />
+                <Ionicons name="trash-outline" size={18} color={t("#B8AC9C")} />
               </Pressable>
             ) : null}
           </View>

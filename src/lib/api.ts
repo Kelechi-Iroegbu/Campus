@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react";
 import { useAuth } from "@clerk/expo";
+import * as Sentry from "@sentry/react-native";
 
 /**
  * Authenticated fetch for the app's own `+api.ts` routes.
@@ -26,6 +27,24 @@ export function useApi() {
     if (init?.body && !headers.has("content-type")) {
       headers.set("content-type", "application/json");
     }
-    return fetch(path, { ...init, headers });
+    const method = init?.method ?? "GET";
+    try {
+      const res = await fetch(path, { ...init, headers });
+      Sentry.addBreadcrumb({
+        category: "api",
+        message: `${method} ${path}`,
+        level: res.ok ? "info" : "warning",
+        data: { status: res.status },
+      });
+      return res;
+    } catch (err) {
+      Sentry.addBreadcrumb({
+        category: "api",
+        message: `${method} ${path}`,
+        level: "error",
+        data: { error: err instanceof Error ? err.message : String(err) },
+      });
+      throw err;
+    }
   }, []);
 }

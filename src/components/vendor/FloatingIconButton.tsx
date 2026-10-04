@@ -13,7 +13,7 @@ export function FloatingIconButton({
       onPress={onPress}
       hitSlop={8}
       style={cardShadow}
-      className="h-8 w-8 items-center justify-center rounded-full bg-white"
+      className="h-8 w-8 items-center justify-center rounded-full bg-white dark:bg-[#201B17]"
     >
       {children}
     </Pressable>

@@ -1,21 +1,29 @@
 import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { nairaAmount, type ActiveDelivery } from "@/data/courier";
+import type { DeliveryJob } from "@/lib/useCourierDeliveries";
 import { cardBase, cardShadow, GREEN, HEADING, ORANGE, SUBTLE } from "./theme";
+
+function naira(minor: number) {
+  return `₦${(minor / 100).toLocaleString()}`;
+}
 
 /** The active-delivery card from the Dashboard, reused on the Deliveries tab
  * so "what am I carrying right now" always looks the same wherever it shows. */
 export function ActiveDeliveryCard({
-  delivery,
-  onNavigate,
+  job,
+  pickupVendorName,
+  onMarkPickedUp,
   onMarkDelivered,
+  onFail,
 }: {
-  delivery: ActiveDelivery | null;
-  onNavigate: () => void;
+  job: DeliveryJob | null;
+  pickupVendorName: string | null;
+  onMarkPickedUp: () => void;
   onMarkDelivered: () => void;
+  onFail: () => void;
 }) {
-  if (!delivery) {
+  if (!job) {
     return (
       <View className="items-center rounded-2xl px-4 py-8" style={cardBase}>
         <Ionicons name="checkmark-done-circle-outline" size={30} color={GREEN} />
@@ -29,11 +37,14 @@ export function ActiveDeliveryCard({
           className="mt-0.5 text-[12.5px] font-inter-regular"
           style={{ color: SUBTLE }}
         >
-          Accept a request to get moving.
+          Claim a request to get moving.
         </Text>
       </View>
     );
   }
+
+  const isPickedUp = job.status === "picked_up";
+  const pickupLabel = job.source === "order" ? pickupVendorName ?? "Vendor" : job.pickupNote ?? "Pickup";
 
   return (
     <View
@@ -51,18 +62,15 @@ export function ActiveDeliveryCard({
               className="text-[13px] font-inter-bold"
               style={{ color: ORANGE }}
             >
-              {delivery.code}
+              #{job.id.slice(0, 8)}
             </Text>
           </View>
-          <View className="flex-row items-center gap-1">
-            <Text
-              className="text-[17px] font-inter-bold"
-              style={{ color: ORANGE }}
-            >
-              {nairaAmount(delivery.amount)}
-            </Text>
-            <Ionicons name="chevron-forward" size={16} color="#C4BEB4" />
-          </View>
+          <Text
+            className="text-[17px] font-inter-bold"
+            style={{ color: ORANGE }}
+          >
+            {naira(job.deliveryFeeMinor)}
+          </Text>
         </View>
 
         <View className="mt-4">
@@ -84,14 +92,16 @@ export function ActiveDeliveryCard({
                 className="text-[14.5px] font-inter-bold"
                 style={{ color: HEADING }}
               >
-                {delivery.pickupName}
+                {pickupLabel}
               </Text>
-              <Text
-                className="mt-0.5 text-[12.5px] font-inter-regular"
-                style={{ color: SUBTLE }}
-              >
-                {delivery.pickupMeta}
-              </Text>
+              {job.source === "errand" ? null : (
+                <Text
+                  className="mt-0.5 text-[12.5px] font-inter-regular"
+                  style={{ color: SUBTLE }}
+                >
+                  Pickup
+                </Text>
+              )}
             </View>
           </View>
 
@@ -104,13 +114,13 @@ export function ActiveDeliveryCard({
                 className="text-[14.5px] font-inter-bold"
                 style={{ color: HEADING }}
               >
-                {delivery.dropName}
+                {job.dropoffNote ?? "Dropoff"}
               </Text>
               <Text
                 className="mt-0.5 text-[12.5px] font-inter-regular"
                 style={{ color: SUBTLE }}
               >
-                {delivery.dropMeta}
+                Dropoff
               </Text>
             </View>
           </View>
@@ -118,20 +128,20 @@ export function ActiveDeliveryCard({
 
         <View className="mt-4 flex-row gap-3">
           <Pressable
-            onPress={onNavigate}
+            onPress={onFail}
             className="flex-row items-center justify-center gap-2 rounded-full py-3.5"
             style={{ flex: 1, backgroundColor: "#FCEEE2" }}
           >
-            <Ionicons name="navigate-outline" size={17} color={HEADING} />
+            <Ionicons name="alert-circle-outline" size={17} color={HEADING} />
             <Text
               className="text-[14.5px] font-inter-bold"
               style={{ color: HEADING }}
             >
-              Navigate
+              Report issue
             </Text>
           </Pressable>
           <Pressable
-            onPress={onMarkDelivered}
+            onPress={isPickedUp ? onMarkDelivered : onMarkPickedUp}
             className="overflow-hidden rounded-full"
             style={{ flex: 1.4 }}
           >
@@ -147,9 +157,13 @@ export function ActiveDeliveryCard({
                 paddingVertical: 14,
               }}
             >
-              <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
+              <Ionicons
+                name={isPickedUp ? "checkmark-circle" : "cube"}
+                size={18}
+                color="#FFFFFF"
+              />
               <Text className="text-[14.5px] font-inter-bold text-white">
-                Mark delivered
+                {isPickedUp ? "Mark delivered" : "Mark picked up"}
               </Text>
             </LinearGradient>
           </Pressable>

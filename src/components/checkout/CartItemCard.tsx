@@ -35,7 +35,7 @@ export function CartItemCard({
 
   return (
     <View
-      className="justify-center rounded-[18px] bg-white"
+      className="justify-center rounded-[18px] bg-white dark:bg-[#201B17]"
       style={[
         { ...cardShadow, shadowOpacity: 0.04, paddingHorizontal: 16 * scale },
         style,
